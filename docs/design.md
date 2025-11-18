@@ -16,10 +16,11 @@ For the MVP, Int Crucible will be implemented as a **single web application** wi
   - Run configuration controls.
   - Run-time status and candidate views.
   - Post-run exploration and feedback tools.
-- **Backend API + Orchestration Engine**:
+- **Backend API + Orchestration Engine (Kosmos-backed)**:
   - Manages projects, chats, specs, world models, runs, and candidates.
-  - Hosts the core agents (ProblemSpec, WorldModeller, Designers, ScenarioGenerator, Evaluators, I-Ranker, Feedback).
-  - Orchestrates the end-to-end pipeline for each run (ProblemSpec → WorldModeller → Designers → ScenarioGenerator → Evaluators → I-Ranker).
+  - Wraps the Kosmos backend (vendored under `vendor/kosmos`) for core infrastructure: configuration, logging, LLM access, agent framework, and persistence patterns ([`jimmc414/Kosmos`](https://github.com/jimmc414/Kosmos)).
+  - Hosts Crucible-specific agents (ProblemSpec, WorldModeller, Designers, ScenarioGenerator, Evaluators, I-Ranker, Feedback) implemented on top of Kosmos’s agent framework.
+  - Orchestrates the end-to-end pipeline for each run (ProblemSpec → WorldModeller → Designers → ScenarioGenerator → Evaluators → I-Ranker) using Kosmos’s workflow primitives.
   - Exposes a programmatic interface (HTTP/JSON and CLI entrypoint) that mirrors what the UI uses.
 - **Persistence Layer**:
   - Stores projects, chats, problem specs, world models, runs, candidates, scores, and provenance.
