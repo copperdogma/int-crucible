@@ -11,6 +11,7 @@ from collections.abc import Generator
 from typing import Dict, Any, Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -60,6 +61,18 @@ app = FastAPI(
     description="A general multi-agent reasoning system",
     version="0.1.0",
     lifespan=lifespan
+)
+
+# Add CORS middleware
+# Allow all origins in development (for local network access)
+# In production, this should be restricted to specific domains
+# Note: When using allow_origins=["*"], allow_credentials must be False
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=False,  # Must be False when using allow_origins=["*"]
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -158,6 +171,93 @@ def get_db() -> Generator[Session, None, None]:
     """Get database session."""
     with get_session() as session:
         yield session
+
+
+# Pydantic models for Project API
+class ProjectCreateRequest(BaseModel):
+    """Request model for project creation."""
+    title: str
+    description: Optional[str] = None
+
+
+class ProjectResponse(BaseModel):
+    """Response model for Project."""
+    id: str
+    title: str
+    description: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+# Pydantic models for ChatSession API
+class ChatSessionCreateRequest(BaseModel):
+    """Request model for chat session creation."""
+    project_id: str
+    title: Optional[str] = None
+    mode: str = "setup"
+    run_id: Optional[str] = None
+    candidate_id: Optional[str] = None
+
+
+class ChatSessionResponse(BaseModel):
+    """Response model for ChatSession."""
+    id: str
+    project_id: str
+    title: Optional[str] = None
+    mode: str
+    run_id: Optional[str] = None
+    candidate_id: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+# Pydantic models for Message API
+class MessageCreateRequest(BaseModel):
+    """Request model for message creation."""
+    content: str
+    role: str = "user"
+    message_metadata: Optional[dict] = None
+
+
+class MessageResponse(BaseModel):
+    """Response model for Message."""
+    id: str
+    chat_session_id: str
+    role: str
+    content: str
+    message_metadata: Optional[dict] = None
+    created_at: Optional[str] = None
+
+
+# Pydantic models for Run API
+class RunCreateRequest(BaseModel):
+    """Request model for run creation."""
+    project_id: str
+    mode: str = "full_search"
+    config: Optional[dict] = None
+
+
+class RunResponse(BaseModel):
+    """Response model for Run."""
+    id: str
+    project_id: str
+    mode: str
+    config: Optional[dict] = None
+    status: str
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class CandidateResponse(BaseModel):
+    """Response model for Candidate."""
+    id: str
+    run_id: str
+    project_id: str
+    origin: str
+    mechanism_description: str
+    predicted_effects: Optional[dict] = None
+    scores: Optional[dict] = None
+    constraint_flags: Optional[List[str]] = None
 
 
 # Pydantic models for ProblemSpec API
@@ -310,6 +410,571 @@ class RunFullPipelineResponse(BaseModel):
     evaluations: dict
     rankings: dict
     status: str
+
+
+# Project endpoints
+@app.get("/projects", response_model=List[ProjectResponse])
+async def list_projects(
+    db: Session = Depends(get_db)
+) -> List[ProjectResponse]:
+    """
+    List all projects.
+    
+    Returns:
+        List of projects
+    """
+    try:
+        from crucible.db.repositories import list_projects as repo_list_projects
+        
+        projects = repo_list_projects(db)
+        return [
+            ProjectResponse(
+                id=p.id,
+                title=p.title,
+                description=p.description,
+                created_at=p.created_at.isoformat() if p.created_at else None,
+                updated_at=p.updated_at.isoformat() if p.updated_at else None,
+            )
+            for p in projects
+        ]
+    except Exception as e:
+        logger.error(f"Error listing projects: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing projects: {str(e)}"
+        )
+
+
+@app.post("/projects", response_model=ProjectResponse)
+async def create_project(
+    request: ProjectCreateRequest,
+    db: Session = Depends(get_db)
+) -> ProjectResponse:
+    """
+    Create a new project.
+    
+    Args:
+        request: Project creation request
+        db: Database session
+        
+    Returns:
+        Created project
+    """
+    try:
+        from crucible.db.repositories import create_project as repo_create_project
+        
+        project = repo_create_project(
+            db,
+            title=request.title,
+            description=request.description
+        )
+        
+        return ProjectResponse(
+            id=project.id,
+            title=project.title,
+            description=project.description,
+            created_at=project.created_at.isoformat() if project.created_at else None,
+            updated_at=project.updated_at.isoformat() if project.updated_at else None,
+        )
+    except Exception as e:
+        logger.error(f"Error creating project: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating project: {str(e)}"
+        )
+
+
+@app.get("/projects/{project_id}", response_model=ProjectResponse)
+async def get_project(
+    project_id: str,
+    db: Session = Depends(get_db)
+) -> ProjectResponse:
+    """
+    Get a project by ID.
+    
+    Args:
+        project_id: Project ID
+        db: Database session
+        
+    Returns:
+        Project data
+    """
+    try:
+        from crucible.db.repositories import get_project as repo_get_project
+        
+        project = repo_get_project(db, project_id)
+        if project is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project not found: {project_id}"
+            )
+        
+        return ProjectResponse(
+            id=project.id,
+            title=project.title,
+            description=project.description,
+            created_at=project.created_at.isoformat() if project.created_at else None,
+            updated_at=project.updated_at.isoformat() if project.updated_at else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting project: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting project: {str(e)}"
+        )
+
+
+# ChatSession endpoints
+@app.get("/chat-sessions", response_model=List[ChatSessionResponse])
+async def list_chat_sessions(
+    project_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+) -> List[ChatSessionResponse]:
+    """
+    List chat sessions, optionally filtered by project.
+    
+    Args:
+        project_id: Optional project ID filter
+        db: Database session
+        
+    Returns:
+        List of chat sessions
+    """
+    try:
+        from crucible.db.repositories import list_chat_sessions as repo_list_chat_sessions
+        
+        sessions = repo_list_chat_sessions(db, project_id)
+        return [
+            ChatSessionResponse(
+                id=s.id,
+                project_id=s.project_id,
+                title=s.title,
+                mode=s.mode.value if hasattr(s.mode, 'value') else str(s.mode),
+                run_id=s.run_id,
+                candidate_id=s.candidate_id,
+                created_at=s.created_at.isoformat() if s.created_at else None,
+                updated_at=s.updated_at.isoformat() if s.updated_at else None,
+            )
+            for s in sessions
+        ]
+    except Exception as e:
+        logger.error(f"Error listing chat sessions: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing chat sessions: {str(e)}"
+        )
+
+
+@app.get("/projects/{project_id}/chat-sessions", response_model=List[ChatSessionResponse])
+async def list_project_chat_sessions(
+    project_id: str,
+    db: Session = Depends(get_db)
+) -> List[ChatSessionResponse]:
+    """
+    List chat sessions for a project.
+    
+    Args:
+        project_id: Project ID
+        db: Database session
+        
+    Returns:
+        List of chat sessions
+    """
+    return await list_chat_sessions(project_id=project_id, db=db)
+
+
+@app.post("/chat-sessions", response_model=ChatSessionResponse)
+async def create_chat_session(
+    request: ChatSessionCreateRequest,
+    db: Session = Depends(get_db)
+) -> ChatSessionResponse:
+    """
+    Create a new chat session.
+    
+    Args:
+        request: Chat session creation request
+        db: Database session
+        
+    Returns:
+        Created chat session
+    """
+    try:
+        from crucible.db.repositories import create_chat_session as repo_create_chat_session
+        
+        session = repo_create_chat_session(
+            db,
+            project_id=request.project_id,
+            title=request.title,
+            mode=request.mode,
+            run_id=request.run_id,
+            candidate_id=request.candidate_id
+        )
+        
+        return ChatSessionResponse(
+            id=session.id,
+            project_id=session.project_id,
+            title=session.title,
+            mode=session.mode.value if hasattr(session.mode, 'value') else str(session.mode),
+            run_id=session.run_id,
+            candidate_id=session.candidate_id,
+            created_at=session.created_at.isoformat() if session.created_at else None,
+            updated_at=session.updated_at.isoformat() if session.updated_at else None,
+        )
+    except Exception as e:
+        logger.error(f"Error creating chat session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating chat session: {str(e)}"
+        )
+
+
+@app.get("/chat-sessions/{chat_session_id}", response_model=ChatSessionResponse)
+async def get_chat_session(
+    chat_session_id: str,
+    db: Session = Depends(get_db)
+) -> ChatSessionResponse:
+    """
+    Get a chat session by ID.
+    
+    Args:
+        chat_session_id: Chat session ID
+        db: Database session
+        
+    Returns:
+        Chat session data
+    """
+    try:
+        from crucible.db.repositories import get_chat_session as repo_get_chat_session
+        
+        session = repo_get_chat_session(db, chat_session_id)
+        if session is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Chat session not found: {chat_session_id}"
+            )
+        
+        return ChatSessionResponse(
+            id=session.id,
+            project_id=session.project_id,
+            title=session.title,
+            mode=session.mode.value if hasattr(session.mode, 'value') else str(session.mode),
+            run_id=session.run_id,
+            candidate_id=session.candidate_id,
+            created_at=session.created_at.isoformat() if session.created_at else None,
+            updated_at=session.updated_at.isoformat() if session.updated_at else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting chat session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting chat session: {str(e)}"
+        )
+
+
+# Message endpoints
+@app.get("/chat-sessions/{chat_session_id}/messages", response_model=List[MessageResponse])
+async def list_messages(
+    chat_session_id: str,
+    db: Session = Depends(get_db)
+) -> List[MessageResponse]:
+    """
+    List messages for a chat session.
+    
+    Args:
+        chat_session_id: Chat session ID
+        db: Database session
+        
+    Returns:
+        List of messages
+    """
+    try:
+        from crucible.db.repositories import list_messages as repo_list_messages
+        
+        messages = repo_list_messages(db, chat_session_id)
+        return [
+            MessageResponse(
+                id=m.id,
+                chat_session_id=m.chat_session_id,
+                role=m.role,
+                content=m.content,
+                message_metadata=m.message_metadata,
+                created_at=m.created_at.isoformat() if m.created_at else None,
+            )
+            for m in messages
+        ]
+    except Exception as e:
+        logger.error(f"Error listing messages: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing messages: {str(e)}"
+        )
+
+
+@app.post("/chat-sessions/{chat_session_id}/messages", response_model=MessageResponse)
+async def create_message(
+    chat_session_id: str,
+    request: MessageCreateRequest,
+    db: Session = Depends(get_db)
+) -> MessageResponse:
+    """
+    Create a new message in a chat session.
+    
+    Args:
+        chat_session_id: Chat session ID
+        request: Message creation request
+        db: Database session
+        
+    Returns:
+        Created message
+    """
+    try:
+        from crucible.db.repositories import create_message as repo_create_message
+        
+        message = repo_create_message(
+            db,
+            chat_session_id=chat_session_id,
+            role=request.role,
+            content=request.content,
+            message_metadata=request.message_metadata
+        )
+        
+        return MessageResponse(
+            id=message.id,
+            chat_session_id=message.chat_session_id,
+            role=message.role,
+            content=message.content,
+            message_metadata=message.message_metadata,
+            created_at=message.created_at.isoformat() if message.created_at else None,
+        )
+    except Exception as e:
+        logger.error(f"Error creating message: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating message: {str(e)}"
+        )
+
+
+# Run endpoints
+@app.get("/runs", response_model=List[RunResponse])
+async def list_runs(
+    project_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+) -> List[RunResponse]:
+    """
+    List runs, optionally filtered by project.
+    
+    Args:
+        project_id: Optional project ID filter
+        db: Database session
+        
+    Returns:
+        List of runs
+    """
+    try:
+        from crucible.db.repositories import list_runs as repo_list_runs
+        
+        runs = repo_list_runs(db, project_id)
+        return [
+            RunResponse(
+                id=r.id,
+                project_id=r.project_id,
+                mode=r.mode,
+                config=r.config,
+                status=r.status.value if hasattr(r.status, 'value') else str(r.status),
+                created_at=r.created_at.isoformat() if r.created_at else None,
+                completed_at=r.completed_at.isoformat() if r.completed_at else None,
+            )
+            for r in runs
+        ]
+    except Exception as e:
+        logger.error(f"Error listing runs: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing runs: {str(e)}"
+        )
+
+
+@app.get("/projects/{project_id}/runs", response_model=List[RunResponse])
+async def list_project_runs(
+    project_id: str,
+    db: Session = Depends(get_db)
+) -> List[RunResponse]:
+    """
+    List runs for a project.
+    
+    Args:
+        project_id: Project ID
+        db: Database session
+        
+    Returns:
+        List of runs
+    """
+    return await list_runs(project_id=project_id, db=db)
+
+
+@app.post("/runs", response_model=RunResponse)
+async def create_run(
+    request: RunCreateRequest,
+    db: Session = Depends(get_db)
+) -> RunResponse:
+    """
+    Create a new run.
+    
+    Args:
+        request: Run creation request
+        db: Database session
+        
+    Returns:
+        Created run
+    """
+    try:
+        from crucible.db.repositories import create_run as repo_create_run
+        
+        run = repo_create_run(
+            db,
+            project_id=request.project_id,
+            mode=request.mode,
+            config=request.config
+        )
+        
+        return RunResponse(
+            id=run.id,
+            project_id=run.project_id,
+            mode=run.mode,
+            config=run.config,
+            status=run.status.value if hasattr(run.status, 'value') else str(run.status),
+            created_at=run.created_at.isoformat() if run.created_at else None,
+            completed_at=run.completed_at.isoformat() if run.completed_at else None,
+        )
+    except Exception as e:
+        logger.error(f"Error creating run: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating run: {str(e)}"
+        )
+
+
+@app.get("/runs/{run_id}", response_model=RunResponse)
+async def get_run(
+    run_id: str,
+    db: Session = Depends(get_db)
+) -> RunResponse:
+    """
+    Get a run by ID.
+    
+    Args:
+        run_id: Run ID
+        db: Database session
+        
+    Returns:
+        Run data
+    """
+    try:
+        from crucible.db.repositories import get_run as repo_get_run
+        
+        run = repo_get_run(db, run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Run not found: {run_id}"
+            )
+        
+        return RunResponse(
+            id=run.id,
+            project_id=run.project_id,
+            mode=run.mode,
+            config=run.config,
+            status=run.status.value if hasattr(run.status, 'value') else str(run.status),
+            created_at=run.created_at.isoformat() if run.created_at else None,
+            completed_at=run.completed_at.isoformat() if run.completed_at else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting run: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting run: {str(e)}"
+        )
+
+
+@app.get("/runs/{run_id}/candidates", response_model=List[CandidateResponse])
+async def list_run_candidates(
+    run_id: str,
+    db: Session = Depends(get_db)
+) -> List[CandidateResponse]:
+    """
+    List candidates for a run.
+    
+    Args:
+        run_id: Run ID
+        db: Database session
+        
+    Returns:
+        List of candidates with scores
+    """
+    try:
+        from crucible.db.repositories import list_candidates as repo_list_candidates, get_run
+        from crucible.services.ranker_service import RankerService
+        
+        # Verify run exists
+        run = get_run(db, run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Run not found: {run_id}"
+            )
+        
+        # Get candidates
+        candidates = repo_list_candidates(db, run_id)
+        
+        # Get scores from evaluations if available
+        ranker_service = RankerService(db)
+        # Try to get ranked candidates (this will compute scores if not already computed)
+        scores_map: dict[str, dict] = {}
+        try:
+            ranked_result = ranker_service.rank_candidates(run_id)
+            # Create a map of candidate_id -> scores
+            for ranked in ranked_result.get('ranked_candidates', []):
+                candidate_id = ranked.get('id')
+                if candidate_id:
+                    scores_map[candidate_id] = {
+                        'P': ranked.get('P'),
+                        'R': ranked.get('R'),
+                        'I': ranked.get('I'),
+                    }
+                    constraint_flags = ranked.get('constraint_flags', [])
+                    if constraint_flags:
+                        scores_map[candidate_id]['constraint_flags'] = constraint_flags
+        except Exception as e:
+            # If ranking fails, just return candidates without scores
+            logger.warning(f"Could not get ranked candidates for run {run_id}: {e}")
+        
+        return [
+            CandidateResponse(
+                id=c.id,
+                run_id=c.run_id,
+                project_id=c.project_id,
+                origin=c.origin,
+                mechanism_description=c.mechanism_description,
+                predicted_effects=c.predicted_effects,
+                scores=scores_map.get(c.id) if c.id in scores_map else None,
+                constraint_flags=scores_map.get(c.id, {}).get('constraint_flags') if c.id in scores_map else None,
+            )
+            for c in candidates
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing run candidates: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing run candidates: {str(e)}"
+        )
 
 
 # ProblemSpec endpoints

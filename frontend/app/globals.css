@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Ensure input text is always visible */
+input, textarea, select {
+  color: rgb(17, 24, 39) !important; /* gray-900 */
+}
+
+input:disabled, textarea:disabled, select:disabled {
+  color: rgb(107, 114, 128) !important; /* gray-500 */
+}
+
+/* Hide Next.js devtools indicators and error overlays to prevent blocking UI */
+#__next-build-watcher,
+[data-nextjs-dialog],
+[data-nextjs-toast],
+.nextjs-toast-errors-parent,
+#__next-error-overlay,
+button[aria-label*="Next.js"],
+button[title*="Next.js"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Ensure chat input area has proper padding to avoid overlap */
+.chat-input-area {
+  padding-bottom: 2rem;
+  margin-bottom: 0.5rem;
+}
