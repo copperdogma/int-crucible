@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Story 007b: Interactive Guidance and Onboarding Agent** (Story definition)
+  - Created story document for interactive guidance agent that will help users understand the Int Crucible workflow
+  - Story includes acceptance criteria, tasks, and implementation notes
+  - Prioritized as 007b (immediately after Story 007 UI)
+- **Story 007: Chat-First Web UI** (UI improvements)
+  - Auto-focus on project title input when create form opens
+  - Prerequisites checking in Run Config panel (shows warning if ProblemSpec/WorldModel missing)
+  - Improved error messages for missing prerequisites
+  - Timezone display fixes (properly converts UTC to local time)
+  - Devtools indicator hiding (prevents blocking chat input)
+  - Hydration warning suppression (handles browser extension modifications)
 - **Story 006: Evaluators and I-Ranker**
   - EvaluatorAgent (`crucible/agents/evaluator_agent.py`) - Evaluates candidates against scenarios, producing structured P (prediction quality), R (resource cost), and constraint satisfaction scores
   - EvaluatorService (`crucible/services/evaluator_service.py`) - Orchestrates evaluation operations with database integration
@@ -60,10 +71,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `crucible/db/repositories.py` - Added graceful error handling for `session.refresh()` in `create_world_model()`
 - Updated `tests/conftest.py` - Added fixtures for WorldModeller testing and improved SQLite threading support
 - Updated Story 004 work log with implementation details
+- Updated `frontend/components/RunConfigPanel.tsx` - Added prerequisites checking with visual warnings
+- Updated `frontend/components/ChatInterface.tsx` - Fixed timezone parsing and display
+- Updated `frontend/components/ProjectSelector.tsx` - Added auto-focus functionality
+- Updated `frontend/app/layout.tsx` - Added suppressHydrationWarning for browser extensions
+- Updated `frontend/app/globals.css` - Added CSS rules to hide devtools indicators
+- Updated `frontend/next.config.ts` - Disabled build activity indicator
+- Updated `docs/stories.md` - Added Story 007b to story index
 
 ### Fixed
 - SQLite threading issues in integration tests by using file-based database instead of in-memory
 - Repository `session.refresh()` edge cases in WorldModel creation
+- Timezone display issue in chat messages (now correctly converts UTC to local time)
+- Devtools indicator blocking chat input area
+- React hydration warnings from browser extensions
+- Run Config error handling (now shows helpful prerequisites warning instead of generic error)
 
 ## [0.1.0] - 2025-01-17
 
