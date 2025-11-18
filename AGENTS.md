@@ -397,11 +397,21 @@ curl http://127.0.0.1:8000/health
 - Start server and test API endpoints
 - Check linting: `ruff check crucible/`
 
+**IMPORTANT**: Before presenting any work to the user, you MUST verify:
+- All code changes compile/run without errors
+- Database migrations apply successfully (if applicable): `alembic upgrade head`
+- CRUD operations work correctly (if applicable): test create, read, update operations
+- Imports resolve correctly: `python -c "from crucible.db import ..."`
+- Linter passes: `ruff check crucible/`
+- Any new functionality can be exercised via tests or manual verification
+- Document verification steps in work logs or commit messages
+
 ### 4. Adding Features
 - Follow existing patterns in codebase
 - Update relevant documentation
 - Add tests if applicable
 - Update this file if architecture changes
+- **VERIFY BEFORE PRESENTING**: All changes must be tested and verified before being shown to the user
 
 ## Key Design Principles
 
