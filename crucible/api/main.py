@@ -20,6 +20,8 @@ from crucible.services.problemspec_service import ProblemSpecService
 from crucible.services.worldmodel_service import WorldModelService
 from crucible.services.designer_service import DesignerService
 from crucible.services.scenario_service import ScenarioService
+from crucible.services.evaluator_service import EvaluatorService
+from crucible.services.ranker_service import RankerService
 from crucible.services.run_service import RunService
 from sqlalchemy.orm import Session
 
@@ -255,6 +257,58 @@ class RunDesignScenarioResponse(BaseModel):
     """Response model for design + scenario generation."""
     candidates: dict
     scenarios: dict
+    status: str
+
+
+# Pydantic models for Evaluator API
+class EvaluatorEvaluateRequest(BaseModel):
+    """Request model for evaluation (no parameters needed, uses existing candidates and scenarios)."""
+
+
+class EvaluatorEvaluateResponse(BaseModel):
+    """Response model for evaluation."""
+    evaluations: List[dict]
+    count: int
+    candidates_evaluated: int
+    scenarios_used: int
+
+
+# Pydantic models for Ranker API
+class RankerRankRequest(BaseModel):
+    """Request model for ranking (no parameters needed, uses existing evaluations)."""
+
+
+class RankerRankResponse(BaseModel):
+    """Response model for ranking."""
+    ranked_candidates: List[dict]
+    count: int
+    hard_constraint_violations: List[str]
+
+
+# Pydantic models for full pipeline API
+class RunEvaluateRankRequest(BaseModel):
+    """Request model for evaluate + rank phase (no parameters needed)."""
+
+
+class RunEvaluateRankResponse(BaseModel):
+    """Response model for evaluate + rank phase."""
+    evaluations: dict
+    rankings: dict
+    status: str
+
+
+class RunFullPipelineRequest(BaseModel):
+    """Request model for full pipeline execution."""
+    num_candidates: int = 5
+    num_scenarios: int = 8
+
+
+class RunFullPipelineResponse(BaseModel):
+    """Response model for full pipeline execution."""
+    candidates: dict
+    scenarios: dict
+    evaluations: dict
+    rankings: dict
     status: str
 
 
@@ -616,6 +670,182 @@ async def execute_design_and_scenarios(
         raise HTTPException(
             status_code=500,
             detail=f"Error executing design + scenario phase: {str(e)}"
+        )
+
+
+# Evaluator endpoints
+@app.post("/runs/{run_id}/evaluate", response_model=EvaluatorEvaluateResponse)
+async def evaluate_candidates(
+    run_id: str,
+    request: EvaluatorEvaluateRequest,
+    db: Session = Depends(get_db)
+) -> EvaluatorEvaluateResponse:
+    """
+    Evaluate all candidates in a run against all scenarios.
+    
+    This endpoint:
+    - Reads all candidates and scenarios for the run
+    - Uses the Evaluator agent to evaluate each candidate against each scenario
+    - Creates evaluation records in the database
+    
+    Args:
+        run_id: Run ID
+        request: Evaluation request (no parameters needed)
+        db: Database session
+        
+    Returns:
+        Evaluation result with evaluations, count, and statistics
+    """
+    try:
+        service = RunService(db)
+        result = service.execute_evaluation_phase(run_id=run_id)
+        
+        return EvaluatorEvaluateResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error in evaluation phase for run {run_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error executing evaluation phase: {str(e)}"
+        )
+
+
+# Ranker endpoints
+@app.post("/runs/{run_id}/rank", response_model=RankerRankResponse)
+async def rank_candidates(
+    run_id: str,
+    request: RankerRankRequest,
+    db: Session = Depends(get_db)
+) -> RankerRankResponse:
+    """
+    Rank all candidates in a run based on their evaluations.
+    
+    This endpoint:
+    - Aggregates evaluations for each candidate
+    - Computes I = P/R for each candidate
+    - Flags hard constraint violations (weight 100)
+    - Updates candidate scores in the database
+    - Returns ranked list with explanations
+    
+    Args:
+        run_id: Run ID
+        request: Ranking request (no parameters needed)
+        db: Database session
+        
+    Returns:
+        Ranking result with ranked candidates, count, and hard violations
+    """
+    try:
+        service = RunService(db)
+        result = service.execute_ranking_phase(run_id=run_id)
+        
+        return RankerRankResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error in ranking phase for run {run_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error executing ranking phase: {str(e)}"
+        )
+
+
+# Run orchestration endpoints (evaluate + rank)
+@app.post("/runs/{run_id}/evaluate-and-rank", response_model=RunEvaluateRankResponse)
+async def execute_evaluate_and_rank(
+    run_id: str,
+    request: RunEvaluateRankRequest,
+    db: Session = Depends(get_db)
+) -> RunEvaluateRankResponse:
+    """
+    Execute evaluate + rank phase for a run.
+    
+    This endpoint orchestrates the full "evaluate + rank" phase:
+    - Evaluates all candidates against all scenarios
+    - Ranks candidates based on evaluations
+    - Updates candidate scores and statuses
+    
+    Args:
+        run_id: Run ID
+        request: Evaluate + rank request (no parameters needed)
+        db: Database session
+        
+    Returns:
+        Result with evaluations, rankings, and status
+    """
+    try:
+        service = RunService(db)
+        result = service.execute_evaluate_and_rank_phase(run_id=run_id)
+        
+        return RunEvaluateRankResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error in evaluate + rank phase for run {run_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error executing evaluate + rank phase: {str(e)}"
+        )
+
+
+# Full pipeline endpoint
+@app.post("/runs/{run_id}/full-pipeline", response_model=RunFullPipelineResponse)
+async def execute_full_pipeline(
+    run_id: str,
+    request: RunFullPipelineRequest,
+    db: Session = Depends(get_db)
+) -> RunFullPipelineResponse:
+    """
+    Execute the full pipeline: Design → Scenarios → Evaluation → Ranking.
+    
+    This endpoint orchestrates the complete pipeline:
+    - Generates diverse candidates from WorldModel
+    - Generates scenario suite
+    - Evaluates all candidates against all scenarios
+    - Ranks candidates based on evaluations
+    - Marks run as completed
+    
+    Args:
+        run_id: Run ID
+        request: Full pipeline request with optional num_candidates and num_scenarios
+        db: Database session
+        
+    Returns:
+        Result with candidates, scenarios, evaluations, rankings, and status
+    """
+    try:
+        service = RunService(db)
+        result = service.execute_full_pipeline(
+            run_id=run_id,
+            num_candidates=request.num_candidates,
+            num_scenarios=request.num_scenarios
+        )
+        
+        return RunFullPipelineResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error in full pipeline for run {run_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error executing full pipeline: {str(e)}"
         )
 
 

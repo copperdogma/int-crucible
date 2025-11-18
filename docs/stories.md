@@ -14,7 +14,7 @@ Int Crucible
 | 002b     | Establish verification pipeline for all work       | High     | Done     | /docs/stories/story-002b-verification-pipeline.md       |
 | 003      | Implement ProblemSpec modelling flow              | High     | Done     | /docs/stories/story-003-problemspec-agent-and-flow.md   |
 | 004      | Implement WorldModeller and world-model view      | High     | Done    | /docs/stories/story-004-worldmodeller-and-spec-view.md  |
-| 005      | Implement Designers and ScenarioGenerator         | High     | To Do    | /docs/stories/story-005-designers-and-scenarios.md      |
+| 005      | Implement Designers and ScenarioGenerator         | High     | Done    | /docs/stories/story-005-designers-and-scenarios.md      |
 | 006      | Implement Evaluators and I-Ranker                 | High     | To Do    | /docs/stories/story-006-evaluators-and-i-ranker.md      |
 | 007      | Build minimal chat-first web UI                   | High     | To Do    | /docs/stories/story-007-chat-first-ui.md                |
 | 008      | Implement provenance and candidate lineage        | Medium   | To Do    | /docs/stories/story-008-provenance-and-lineage.md       |

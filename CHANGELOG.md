@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Story 006: Evaluators and I-Ranker**
+  - EvaluatorAgent (`crucible/agents/evaluator_agent.py`) - Evaluates candidates against scenarios, producing structured P (prediction quality), R (resource cost), and constraint satisfaction scores
+  - EvaluatorService (`crucible/services/evaluator_service.py`) - Orchestrates evaluation operations with database integration
+  - RankerService (`crucible/services/ranker_service.py`) - Aggregates evaluations, computes I = P/R metric, and flags hard constraint violations (weight >= 100)
+  - Enhanced RunService with evaluation and ranking phases:
+    - `execute_evaluation_phase()` - Evaluate all candidates against all scenarios
+    - `execute_ranking_phase()` - Rank candidates based on evaluations
+    - `execute_evaluate_and_rank_phase()` - Combined evaluation + ranking phase
+    - `execute_full_pipeline()` - Complete pipeline: Design → Scenarios → Evaluation → Ranking
+  - API endpoints for evaluation and ranking:
+    - `POST /runs/{run_id}/evaluate` - Evaluate all candidates in a run
+    - `POST /runs/{run_id}/rank` - Rank candidates based on evaluations
+    - `POST /runs/{run_id}/evaluate-and-rank` - Execute evaluate + rank phase
+    - `POST /runs/{run_id}/full-pipeline` - Execute complete pipeline
+  - Comprehensive test suite:
+    - 6 unit tests for EvaluatorAgent (`tests/unit/agents/test_evaluator_agent.py`)
+    - 4 unit tests for EvaluatorService (`tests/unit/services/test_evaluator_service.py`)
+    - 5 unit tests for RankerService (`tests/unit/services/test_ranker_service.py`)
 - **Story 005: Designers and ScenarioGenerator**
   - DesignerAgent (`crucible/agents/designer_agent.py`) - Generates diverse candidate solutions from WorldModel
   - ScenarioGeneratorAgent (`crucible/agents/scenario_generator_agent.py`) - Produces scenario suites that stress critical constraints and assumptions
