@@ -7,12 +7,17 @@ with Kosmos for agent orchestration and infrastructure.
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Dict, Any
+from collections.abc import Generator
+from typing import Dict, Any, Optional, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from crucible.config import get_config
+from crucible.db.session import get_session
+from crucible.services.problemspec_service import ProblemSpecService
+from sqlalchemy.orm import Session
 
 # Initialize logging
 logging.basicConfig(
@@ -139,6 +144,119 @@ async def test_kosmos_agent() -> Dict[str, Any]:
         raise HTTPException(
             status_code=500,
             detail=f"Error testing Kosmos integration: {str(e)}"
+        )
+
+
+# Dependency injection for database session
+def get_db() -> Generator[Session, None, None]:
+    """Get database session."""
+    with get_session() as session:
+        yield session
+
+
+# Pydantic models for ProblemSpec API
+class ProblemSpecRefineRequest(BaseModel):
+    """Request model for ProblemSpec refinement."""
+    chat_session_id: Optional[str] = None
+    message_limit: int = 20
+
+
+class ProblemSpecResponse(BaseModel):
+    """Response model for ProblemSpec."""
+    id: str
+    project_id: str
+    constraints: List[dict]
+    goals: List[str]
+    resolution: str
+    mode: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ProblemSpecRefineResponse(BaseModel):
+    """Response model for ProblemSpec refinement."""
+    updated_spec: dict
+    follow_up_questions: List[str]
+    reasoning: str
+    ready_to_run: bool
+    applied: bool
+
+
+# ProblemSpec endpoints
+@app.get("/projects/{project_id}/problem-spec", response_model=ProblemSpecResponse)
+async def get_problem_spec(
+    project_id: str,
+    db: Session = Depends(get_db)
+) -> ProblemSpecResponse:
+    """
+    Get ProblemSpec for a project.
+    
+    Args:
+        project_id: Project ID
+        db: Database session
+        
+    Returns:
+        ProblemSpec data
+    """
+    try:
+        service = ProblemSpecService(db)
+        spec = service.get_problem_spec(project_id)
+        
+        if spec is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"ProblemSpec not found for project {project_id}"
+            )
+        
+        return ProblemSpecResponse(**spec)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting ProblemSpec: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting ProblemSpec: {str(e)}"
+        )
+
+
+@app.post("/projects/{project_id}/problem-spec/refine", response_model=ProblemSpecRefineResponse)
+async def refine_problem_spec(
+    project_id: str,
+    request: ProblemSpecRefineRequest,
+    db: Session = Depends(get_db)
+) -> ProblemSpecRefineResponse:
+    """
+    Refine ProblemSpec based on chat context.
+    
+    This endpoint:
+    - Reads recent chat messages from the specified chat session
+    - Uses the ProblemSpec agent to propose updates
+    - Optionally applies updates to the database
+    
+    Args:
+        project_id: Project ID
+        request: Refinement request with optional chat_session_id
+        db: Database session
+        
+    Returns:
+        Refinement result with updated spec, questions, and reasoning
+    """
+    try:
+        service = ProblemSpecService(db)
+        result = service.refine_problem_spec(
+            project_id=project_id,
+            chat_session_id=request.chat_session_id,
+            message_limit=request.message_limit
+        )
+        
+        return ProblemSpecRefineResponse(**result)
+        
+    except Exception as e:
+        logger.error(f"Error refining ProblemSpec: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error refining ProblemSpec: {str(e)}"
         )
 
 

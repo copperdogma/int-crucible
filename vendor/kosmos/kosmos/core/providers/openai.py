@@ -169,12 +169,28 @@ class OpenAIProvider(LLMProvider):
             messages.append({"role": "user", "content": prompt})
 
             # Prepare API call arguments
+            # GPT-5 and o1 models have different API requirements
+            model_uses_completion_tokens = (
+                self.model.startswith("gpt-5") or 
+                self.model.startswith("o1") or
+                self.model.startswith("o3")
+            )
+            # GPT-5 models only support temperature=1 (default)
+            model_requires_default_temp = self.model.startswith("gpt-5")
+            
             api_args = {
                 "model": self.model,
                 "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
             }
+            
+            # Only set temperature if model supports custom values
+            if not model_requires_default_temp:
+                api_args["temperature"] = temperature
+            
+            if model_uses_completion_tokens:
+                api_args["max_completion_tokens"] = max_tokens
+            else:
+                api_args["max_tokens"] = max_tokens
 
             if stop_sequences:
                 api_args["stop"] = stop_sequences

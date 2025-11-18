@@ -49,6 +49,7 @@ class CrucibleConfig(BaseSettings):
         populate_by_name=True,
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore",  # Allow extra fields for Kosmos configuration
     )
 
 

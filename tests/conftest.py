@@ -1,0 +1,118 @@
+"""
+Pytest configuration and fixtures for Int Crucible tests.
+"""
+
+import pytest
+from unittest.mock import Mock, MagicMock
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from typing import Generator
+
+from crucible.db.models import Base as CrucibleBase
+from crucible.db.session import get_session
+from crucible.agents.problemspec_agent import ProblemSpecAgent
+from crucible.services.problemspec_service import ProblemSpecService
+from kosmos.core.providers.base import LLMResponse, UsageStats
+
+
+@pytest.fixture
+def test_db_session():
+    """
+    Create an in-memory SQLite database session for testing.
+    """
+    engine = create_engine("sqlite:///:memory:", echo=False)
+    CrucibleBase.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
+
+
+@pytest.fixture
+def mock_llm_provider():
+    """
+    Mock LLM provider for testing without actual API calls.
+    """
+    provider = Mock()
+    
+    # Default successful response
+    provider.generate = Mock(return_value=LLMResponse(
+        content='{"updated_spec": {"constraints": [], "goals": [], "resolution": "medium", "mode": "full_search"}, "follow_up_questions": [], "reasoning": "Test reasoning", "ready_to_run": false}',
+        usage=UsageStats(input_tokens=100, output_tokens=50, total_tokens=150),
+        model="test-model",
+        finish_reason="stop"
+    ))
+    
+    provider.model = "test-model"
+    provider.provider_name = "test"
+    
+    return provider
+
+
+@pytest.fixture
+def mock_problemspec_agent(mock_llm_provider):
+    """
+    Create a ProblemSpecAgent with mocked LLM provider.
+    """
+    agent = ProblemSpecAgent()
+    agent.llm_provider = mock_llm_provider
+    return agent
+
+
+@pytest.fixture
+def sample_chat_messages():
+    """
+    Sample chat messages for testing.
+    """
+    return [
+        {"role": "user", "content": "I need to improve API response times."},
+        {"role": "agent", "content": "What specific endpoints are slow?"},
+        {"role": "user", "content": "The user profile endpoint takes 2-3 seconds."},
+    ]
+
+
+@pytest.fixture
+def sample_current_spec():
+    """
+    Sample current ProblemSpec for testing.
+    """
+    return {
+        "constraints": [
+            {"name": "Budget", "description": "Limited budget", "weight": 60}
+        ],
+        "goals": ["Reduce response time to under 500ms"],
+        "resolution": "medium",
+        "mode": "full_search"
+    }
+
+
+@pytest.fixture
+def sample_llm_response_json():
+    """
+    Sample LLM response JSON for testing.
+    """
+    return {
+        "updated_spec": {
+            "constraints": [
+                {"name": "Performance", "description": "Response time must be under 500ms", "weight": 80},
+                {"name": "Budget", "description": "Limited budget", "weight": 60}
+            ],
+            "goals": [
+                "Reduce response time to under 500ms",
+                "Maintain system reliability"
+            ],
+            "resolution": "medium",
+            "mode": "full_search"
+        },
+        "follow_up_questions": [
+            "What is the current infrastructure setup?",
+            "Are there any hard constraints we must not violate?"
+        ],
+        "reasoning": "Added performance constraint based on user's response time requirements.",
+        "ready_to_run": False
+    }
+
