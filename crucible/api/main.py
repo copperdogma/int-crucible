@@ -18,6 +18,9 @@ from crucible.config import get_config
 from crucible.db.session import get_session
 from crucible.services.problemspec_service import ProblemSpecService
 from crucible.services.worldmodel_service import WorldModelService
+from crucible.services.designer_service import DesignerService
+from crucible.services.scenario_service import ScenarioService
+from crucible.services.run_service import RunService
 from sqlalchemy.orm import Session
 
 # Initialize logging
@@ -212,6 +215,47 @@ class WorldModelUpdateRequest(BaseModel):
     """Request model for manual WorldModel update."""
     model_data: dict
     source: str = "manual_edit"
+
+
+# Pydantic models for Designer API
+class DesignerGenerateRequest(BaseModel):
+    """Request model for candidate generation."""
+    num_candidates: int = 5
+
+
+class DesignerGenerateResponse(BaseModel):
+    """Response model for candidate generation."""
+    candidates: List[dict]
+    reasoning: str
+    count: int
+
+
+# Pydantic models for Scenario API
+class ScenarioGenerateRequest(BaseModel):
+    """Request model for scenario suite generation."""
+    num_scenarios: int = 8
+
+
+class ScenarioGenerateResponse(BaseModel):
+    """Response model for scenario suite generation."""
+    scenario_suite: dict
+    scenarios: List[dict]
+    reasoning: str
+    count: int
+
+
+# Pydantic models for Run orchestration API
+class RunDesignScenarioRequest(BaseModel):
+    """Request model for design + scenario generation."""
+    num_candidates: int = 5
+    num_scenarios: int = 8
+
+
+class RunDesignScenarioResponse(BaseModel):
+    """Response model for design + scenario generation."""
+    candidates: dict
+    scenarios: dict
+    status: str
 
 
 # ProblemSpec endpoints
@@ -421,6 +465,157 @@ async def update_world_model(
         raise HTTPException(
             status_code=500,
             detail=f"Error updating WorldModel: {str(e)}"
+        )
+
+
+# Designer endpoints
+@app.post("/runs/{run_id}/generate-candidates", response_model=DesignerGenerateResponse)
+async def generate_candidates(
+    run_id: str,
+    request: DesignerGenerateRequest,
+    db: Session = Depends(get_db)
+) -> DesignerGenerateResponse:
+    """
+    Generate candidates for a run.
+    
+    This endpoint:
+    - Reads ProblemSpec and WorldModel for the run's project
+    - Uses the Designer agent to generate diverse candidate solutions
+    - Creates candidates in the database with provenance tracking
+    
+    Args:
+        run_id: Run ID
+        request: Generation request with optional num_candidates
+        db: Database session
+        
+    Returns:
+        Generation result with candidates, reasoning, and count
+    """
+    try:
+        # Get run to find project_id
+        from crucible.db.repositories import get_run
+        run = get_run(db, run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Run not found: {run_id}"
+            )
+        
+        service = DesignerService(db)
+        result = service.generate_candidates(
+            run_id=run_id,
+            project_id=run.project_id,
+            num_candidates=request.num_candidates
+        )
+        
+        return DesignerGenerateResponse(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating candidates: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating candidates: {str(e)}"
+        )
+
+
+# Scenario endpoints
+@app.post("/runs/{run_id}/generate-scenarios", response_model=ScenarioGenerateResponse)
+async def generate_scenarios(
+    run_id: str,
+    request: ScenarioGenerateRequest,
+    db: Session = Depends(get_db)
+) -> ScenarioGenerateResponse:
+    """
+    Generate scenario suite for a run.
+    
+    This endpoint:
+    - Reads ProblemSpec and WorldModel for the run's project
+    - Optionally reads existing candidates for scenario targeting
+    - Uses the ScenarioGenerator agent to create scenarios
+    - Creates or updates scenario suite in the database
+    
+    Args:
+        run_id: Run ID
+        request: Generation request with optional num_scenarios
+        db: Database session
+        
+    Returns:
+        Generation result with scenario suite, scenarios, reasoning, and count
+    """
+    try:
+        # Get run to find project_id
+        from crucible.db.repositories import get_run
+        run = get_run(db, run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Run not found: {run_id}"
+            )
+        
+        service = ScenarioService(db)
+        result = service.generate_scenario_suite(
+            run_id=run_id,
+            project_id=run.project_id,
+            num_scenarios=request.num_scenarios
+        )
+        
+        return ScenarioGenerateResponse(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating scenarios: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating scenarios: {str(e)}"
+        )
+
+
+# Run orchestration endpoints
+@app.post("/runs/{run_id}/design-and-scenarios", response_model=RunDesignScenarioResponse)
+async def execute_design_and_scenarios(
+    run_id: str,
+    request: RunDesignScenarioRequest,
+    db: Session = Depends(get_db)
+) -> RunDesignScenarioResponse:
+    """
+    Execute design + scenario generation phase for a run.
+    
+    This endpoint orchestrates the full "design + scenario generation" phase:
+    - Generates diverse candidates from WorldModel
+    - Generates scenario suite that stresses critical constraints and assumptions
+    - Creates all entities in the database with provenance tracking
+    
+    Args:
+        run_id: Run ID
+        request: Request with optional num_candidates and num_scenarios
+        db: Database session
+        
+    Returns:
+        Result with candidates, scenarios, and status
+    """
+    try:
+        service = RunService(db)
+        result = service.execute_design_and_scenario_phase(
+            run_id=run_id,
+            num_candidates=request.num_candidates,
+            num_scenarios=request.num_scenarios
+        )
+        
+        return RunDesignScenarioResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error in design + scenario phase for run {run_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error executing design + scenario phase: {str(e)}"
         )
 
 

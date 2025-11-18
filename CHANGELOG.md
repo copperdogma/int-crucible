@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Story 005: Designers and ScenarioGenerator**
+  - DesignerAgent (`crucible/agents/designer_agent.py`) - Generates diverse candidate solutions from WorldModel
+  - ScenarioGeneratorAgent (`crucible/agents/scenario_generator_agent.py`) - Produces scenario suites that stress critical constraints and assumptions
+  - DesignerService (`crucible/services/designer_service.py`) - Orchestrates candidate generation with provenance tracking
+  - ScenarioService (`crucible/services/scenario_service.py`) - Orchestrates scenario suite generation
+  - RunService (`crucible/services/run_service.py`) - Orchestrates complete design + scenario generation phase
+  - API endpoints for design and scenario generation:
+    - `POST /runs/{run_id}/generate-candidates` - Generate candidates for a run
+    - `POST /runs/{run_id}/generate-scenarios` - Generate scenario suite for a run
+    - `POST /runs/{run_id}/design-and-scenarios` - Execute full design + scenario phase
+  - Candidate and ScenarioSuite JSON schema documentation (`docs/candidate-scenario-schema.md`)
+  - Comprehensive test suite:
+    - 6 unit tests for DesignerAgent (`tests/unit/agents/test_designer_agent.py`)
+    - 6 unit tests for ScenarioGeneratorAgent (`tests/unit/agents/test_scenario_generator_agent.py`)
+    - 4 unit tests for DesignerService (`tests/unit/services/test_designer_service.py`)
+    - 4 unit tests for ScenarioService (`tests/unit/services/test_scenario_service.py`)
+    - 10 integration tests for design + scenario generation flow (`tests/integration/test_design_scenario_flow.py`)
 - WorldModeller agent (`crucible/agents/worldmodeller_agent.py`) - Builds structured world models from ProblemSpec and chat context
 - WorldModel service (`crucible/services/worldmodel_service.py`) - Orchestrates WorldModel operations with provenance tracking
 - WorldModel API endpoints:
