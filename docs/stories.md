@@ -16,7 +16,7 @@ Int Crucible
 | 004      | Implement WorldModeller and world-model view      | High     | Done    | /docs/stories/story-004-worldmodeller-and-spec-view.md  |
 | 005      | Implement Designers and ScenarioGenerator         | High     | Done    | /docs/stories/story-005-designers-and-scenarios.md      |
 | 006      | Implement Evaluators and I-Ranker                 | High     | Done    | /docs/stories/story-006-evaluators-and-i-ranker.md      |
-| 007      | Build minimal chat-first web UI                   | High     | To Do    | /docs/stories/story-007-chat-first-ui.md                |
+| 007      | Build minimal chat-first web UI                   | High     | Done    | /docs/stories/story-007-chat-first-ui.md                |
 | 007b     | Implement interactive guidance and onboarding agent | High     | To Do    | /docs/stories/story-007b-interactive-guidance-agent.md  |
 | 008      | Implement provenance and candidate lineage        | Medium   | To Do    | /docs/stories/story-008-provenance-and-lineage.md       |
 | 009      | Implement feedback loop and issue handling        | Medium   | To Do    | /docs/stories/story-009-feedback-and-issues.md          |
