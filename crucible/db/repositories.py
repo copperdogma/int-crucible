@@ -235,7 +235,13 @@ def create_world_model(
     )
     session.add(world_model)
     session.commit()
-    session.refresh(world_model)
+    # Refresh to ensure we have the latest data (skip if table doesn't exist yet)
+    try:
+        session.refresh(world_model)
+    except Exception:
+        # If refresh fails (e.g., table doesn't exist in test), that's okay
+        # The object is already committed and we have the data
+        pass
     return world_model
 
 

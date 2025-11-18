@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from crucible.config import get_config
 from crucible.db.session import get_session
 from crucible.services.problemspec_service import ProblemSpecService
+from crucible.services.worldmodel_service import WorldModelService
 from sqlalchemy.orm import Session
 
 # Initialize logging
@@ -182,6 +183,37 @@ class ProblemSpecRefineResponse(BaseModel):
     applied: bool
 
 
+# Pydantic models for WorldModel API
+class WorldModelRefineRequest(BaseModel):
+    """Request model for WorldModel refinement."""
+    chat_session_id: Optional[str] = None
+    message_limit: int = 20
+
+
+class WorldModelResponse(BaseModel):
+    """Response model for WorldModel."""
+    id: str
+    project_id: str
+    model_data: dict
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class WorldModelRefineResponse(BaseModel):
+    """Response model for WorldModel refinement."""
+    updated_model: dict
+    changes: List[dict]
+    reasoning: str
+    ready_to_run: bool
+    applied: bool
+
+
+class WorldModelUpdateRequest(BaseModel):
+    """Request model for manual WorldModel update."""
+    model_data: dict
+    source: str = "manual_edit"
+
+
 # ProblemSpec endpoints
 @app.get("/projects/{project_id}/problem-spec", response_model=ProblemSpecResponse)
 async def get_problem_spec(
@@ -257,6 +289,138 @@ async def refine_problem_spec(
         raise HTTPException(
             status_code=500,
             detail=f"Error refining ProblemSpec: {str(e)}"
+        )
+
+
+# WorldModel endpoints
+@app.get("/projects/{project_id}/world-model", response_model=WorldModelResponse)
+async def get_world_model(
+    project_id: str,
+    db: Session = Depends(get_db)
+) -> WorldModelResponse:
+    """
+    Get WorldModel for a project.
+    
+    Args:
+        project_id: Project ID
+        db: Database session
+        
+    Returns:
+        WorldModel data
+    """
+    try:
+        service = WorldModelService(db)
+        world_model = service.get_world_model(project_id)
+        
+        if world_model is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"WorldModel not found for project {project_id}"
+            )
+        
+        return WorldModelResponse(**world_model)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting WorldModel: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting WorldModel: {str(e)}"
+        )
+
+
+@app.post("/projects/{project_id}/world-model/refine", response_model=WorldModelRefineResponse)
+async def refine_world_model(
+    project_id: str,
+    request: WorldModelRefineRequest,
+    db: Session = Depends(get_db)
+) -> WorldModelRefineResponse:
+    """
+    Generate or refine WorldModel based on ProblemSpec and chat context.
+    
+    This endpoint:
+    - Reads ProblemSpec and recent chat messages
+    - Uses the WorldModeller agent to propose updates
+    - Applies updates to the database with provenance tracking
+    
+    Args:
+        project_id: Project ID
+        request: Refinement request with optional chat_session_id
+        db: Database session
+        
+    Returns:
+        Refinement result with updated model, changes, and reasoning
+    """
+    try:
+        service = WorldModelService(db)
+        result = service.generate_or_refine_world_model(
+            project_id=project_id,
+            chat_session_id=request.chat_session_id,
+            message_limit=request.message_limit
+        )
+        
+        return WorldModelRefineResponse(**result)
+        
+    except Exception as e:
+        logger.error(f"Error refining WorldModel: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error refining WorldModel: {str(e)}"
+        )
+
+
+@app.put("/projects/{project_id}/world-model", response_model=WorldModelResponse)
+async def update_world_model(
+    project_id: str,
+    request: WorldModelUpdateRequest,
+    db: Session = Depends(get_db)
+) -> WorldModelResponse:
+    """
+    Manually update WorldModel (e.g., from UI edits).
+    
+    This endpoint allows direct updates to the WorldModel, typically from
+    user edits in the UI. Provenance tracking is automatically added.
+    
+    Args:
+        project_id: Project ID
+        request: Update request with model_data and optional source
+        db: Database session
+        
+    Returns:
+        Updated WorldModel data
+    """
+    try:
+        service = WorldModelService(db)
+        success = service.update_world_model_manual(
+            project_id=project_id,
+            model_data=request.model_data,
+            source=request.source
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update WorldModel"
+            )
+        
+        # Return updated model
+        world_model = service.get_world_model(project_id)
+        if world_model is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"WorldModel not found for project {project_id}"
+            )
+        
+        return WorldModelResponse(**world_model)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating WorldModel: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating WorldModel: {str(e)}"
         )
 
 
