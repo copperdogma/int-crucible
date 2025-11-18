@@ -1,0 +1,110 @@
+TY  - CONF
+TI  - Attention Is All You Need
+AU  - Vaswani, Ashish
+AU  - Shazeer, Noam
+AU  - Parmar, Niki
+AU  - Uszkoreit, Jakob
+AU  - Jones, Llion
+AU  - Gomez, Aidan N
+AU  - Kaiser, Lukasz
+AU  - Polosukhin, Illia
+T2  - Advances in Neural Information Processing Systems
+PY  - 2017
+SP  - 5998
+EP  - 6008
+VL  - 30
+DO  - 10.5555/3295222.3295349
+UR  - https://arxiv.org/abs/1706.03762
+ER  -
+
+TY  - CONF
+TI  - BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding
+AU  - Devlin, Jacob
+AU  - Chang, Ming-Wei
+AU  - Lee, Kenton
+AU  - Toutanova, Kristina
+T2  - Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics
+PY  - 2019
+SP  - 4171
+EP  - 4186
+DO  - 10.18653/v1/N19-1423
+UR  - https://arxiv.org/abs/1810.04805
+ER  -
+
+TY  - CONF
+TI  - Deep Residual Learning for Image Recognition
+AU  - He, Kaiming
+AU  - Zhang, Xiangyu
+AU  - Ren, Shaoqing
+AU  - Sun, Jian
+T2  - Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition
+PY  - 2016
+SP  - 770
+EP  - 778
+DO  - 10.1109/CVPR.2016.90
+UR  - https://arxiv.org/abs/1512.03385
+ER  -
+
+TY  - JOUR
+TI  - ImageNet Classification with Deep Convolutional Neural Networks
+AU  - Krizhevsky, Alex
+AU  - Sutskever, Ilya
+AU  - Hinton, Geoffrey E
+T2  - Communications of the ACM
+PY  - 2017
+VL  - 60
+IS  - 6
+SP  - 84
+EP  - 90
+PB  - ACM New York, NY, USA
+DO  - 10.1145/3065386
+ER  -
+
+TY  - CONF
+TI  - Generative Adversarial Networks
+AU  - Goodfellow, Ian J
+AU  - Pouget-Abadie, Jean
+AU  - Mirza, Mehdi
+AU  - Xu, Bing
+AU  - Warde-Farley, David
+AU  - Ozair, Sherjil
+AU  - Courville, Aaron
+AU  - Bengio, Yoshua
+T2  - Advances in Neural Information Processing Systems
+PY  - 2014
+SP  - 2672
+EP  - 2680
+UR  - https://arxiv.org/abs/1406.2661
+ER  -
+
+TY  - JOUR
+TI  - Multiplex Genome Engineering Using CRISPR/Cas Systems
+AU  - Cong, Le
+AU  - Ran, F Ann
+AU  - Cox, David
+AU  - Lin, Shuailiang
+AU  - Barretto, Robert
+AU  - Habib, Naomi
+AU  - Hsu, Patrick D
+AU  - Wu, Xuebing
+AU  - Jiang, Wenyan
+AU  - Marraffini, Luciano A
+T2  - Science
+PY  - 2013
+VL  - 339
+IS  - 6121
+SP  - 819
+EP  - 823
+PB  - American Association for the Advancement of Science
+DO  - 10.1126/science.1231143
+ER  -
+
+TY  - BOOK
+TI  - Reinforcement Learning: An Introduction
+AU  - Sutton, Richard S
+AU  - Barto, Andrew G
+PY  - 2018
+PB  - MIT Press
+ET  - 2nd
+UR  - http://incompleteideas.net/book/the-book-2nd.html
+ER  -

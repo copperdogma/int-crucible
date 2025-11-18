@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  kosmos-sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kosmos-sandbox:latest
+    container_name: kosmos-sandbox
+
+    # Resource limits (can be overridden at runtime)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'          # Max 2 CPU cores
+          memory: 2G           # Max 2GB RAM
+        reservations:
+          cpus: '0.5'          # Reserve 0.5 cores
+          memory: 512M         # Reserve 512MB
+
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+
+    # Network isolation (no external network access)
+    network_mode: none
+
+    # Read-only filesystem (except /workspace and /tmp)
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=100m
+
+    # Volume mounts (will be configured at runtime)
+    volumes:
+      - type: bind
+        source: ./code
+        target: /workspace/code
+        read_only: true
+      - type: bind
+        source: ./data
+        target: /workspace/data
+        read_only: true
+
+    # Environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MPLBACKEND=Agg
+      - OMP_NUM_THREADS=2
+
+    # Prevent container from running indefinitely
+    command: ["python3", "-c", "import sys; print(f'Python {sys.version}')"]
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Optional: Add a volume for persistent data (commented out by default)
+# volumes:
+#   sandbox-data:
+#     driver: local
