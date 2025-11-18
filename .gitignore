@@ -41,4 +41,7 @@ vendor/*/build/
 .idea/
 *.swp
 *.swo
-*~ 
+*~
+
+# Playwright MCP
+.playwright-mcp/ 

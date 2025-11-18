@@ -84,8 +84,47 @@ There's no proactive agent that:
   - Guidance agent: Focuses on explaining the system and guiding workflow
 - The guidance agent should feel helpful but not intrusive - it should wait for explicit requests or provide subtle suggestions
 - This can build on the prerequisite checking we've already added to RunConfigPanel
+- **Design Philosophy**: The guidance agent is designed to be AI-native rather than template-driven:
+  - It receives strong direction and knowledge through system prompts
+  - It adapts naturally to context and user experience level
+  - It provides conversational guidance rather than rigid templates
+  - Structured data (like workflow progress) is computed programmatically, but guidance text is natural language
 - Future enhancements could include:
   - Interactive tutorials
   - Workflow templates
   - Domain-specific guidance
+
+## Work Log
+
+### 20250117-XXXX — Initial implementation of guidance agent
+- **Result:** Successfully implemented GuidanceAgent, GuidanceService, API endpoints, and frontend integration
+- **Approach Evolution:**
+  1. **Initial:** Scaffolded with rigid JSON structure (over-engineered)
+  2. **Refactored to AI-native:** Natural language output, adaptive prompts, higher temperature
+  3. **Added tool support:** Agent can use tools to query system dynamically
+- **Key Design Decisions:**
+  - **AI-Native vs Template-Driven:** Chose AI-native approach - agent receives strong direction through system prompts but adapts naturally to context
+  - **Tool-Based vs Context-Based:** Implemented hybrid approach - agent has tools available but falls back to context-based if tools unavailable
+  - **Tool Implementation:** Currently uses prompt-based tool descriptions (agent knows about tools in prompt). Future: Could use native LLM function calling (Claude tool use, OpenAI functions) for true tool invocation
+- **Tool Architecture:**
+  - GuidanceService creates tool functions that wrap repository calls
+  - Tools available: `get_workflow_state`, `get_problem_spec`, `get_world_model`, `list_runs`, `get_chat_history`
+  - Agent receives tool descriptions in prompt and can "use" them conceptually
+  - **Current limitation:** Not using native LLM function calling - tools are described but not automatically invoked. This is a pragmatic first step.
+  - **Future enhancement:** Implement true function calling where LLM can invoke tools and receive results in a multi-turn conversation
+- **Components Created:**
+  - `crucible/agents/guidance_agent.py` - AI-native guidance agent with tool support
+  - `crucible/services/guidance_service.py` - Service layer with tool creation
+  - API endpoints: `POST /chat-sessions/{id}/guidance`, `GET /projects/{id}/workflow-state`
+  - Frontend: "Get Help" button in ChatInterface, WorkflowProgress component
+  - Tests: Unit tests for guidance agent
+- **Why Tools Are Better:**
+  - Agent can query for specific information when needed (e.g., "What are my ProblemSpec constraints?")
+  - More efficient - only fetch what's needed, not all context upfront
+  - More accurate - real-time queries rather than potentially stale context
+  - More flexible - agent can explore system dynamically
+  - Better aligns with modern AI agent patterns
+- **Next:** 
+  - Consider implementing native LLM function calling for true tool invocation
+  - User testing and refinement based on actual usage patterns
 

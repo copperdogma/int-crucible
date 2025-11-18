@@ -24,6 +24,7 @@ from crucible.services.scenario_service import ScenarioService
 from crucible.services.evaluator_service import EvaluatorService
 from crucible.services.ranker_service import RankerService
 from crucible.services.run_service import RunService
+from crucible.services.guidance_service import GuidanceService
 from sqlalchemy.orm import Session
 
 # Initialize logging
@@ -410,6 +411,30 @@ class RunFullPipelineResponse(BaseModel):
     evaluations: dict
     rankings: dict
     status: str
+
+
+# Pydantic models for Guidance API
+class GuidanceRequest(BaseModel):
+    """Request model for guidance."""
+    user_query: Optional[str] = None
+    message_limit: int = 5
+
+
+class GuidanceResponse(BaseModel):
+    """Response model for guidance."""
+    guidance_message: str
+    suggested_actions: List[str]
+    workflow_progress: Dict[str, Any]
+
+
+class WorkflowStateResponse(BaseModel):
+    """Response model for workflow state."""
+    has_problem_spec: bool
+    has_world_model: bool
+    has_runs: bool
+    run_count: int
+    project_title: Optional[str]
+    project_description: Optional[str]
 
 
 # Project endpoints
@@ -1511,6 +1536,95 @@ async def execute_full_pipeline(
         raise HTTPException(
             status_code=500,
             detail=f"Error executing full pipeline: {str(e)}"
+        )
+
+
+# Guidance endpoints
+@app.post("/chat-sessions/{chat_session_id}/guidance", response_model=GuidanceResponse)
+async def request_guidance(
+    chat_session_id: str,
+    request: GuidanceRequest,
+    db: Session = Depends(get_db)
+) -> GuidanceResponse:
+    """
+    Request guidance for a chat session.
+    
+    This endpoint:
+    - Gets the project state for the chat session's project
+    - Uses the Guidance agent to provide contextual help
+    - Returns guidance message, suggested actions, and workflow progress
+    
+    Args:
+        chat_session_id: Chat session ID
+        request: Guidance request with optional user_query
+        db: Database session
+        
+    Returns:
+        Guidance response with message, actions, and progress
+    """
+    try:
+        from crucible.db.repositories import get_chat_session
+        
+        # Get chat session to find project_id
+        session = get_chat_session(db, chat_session_id)
+        if session is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Chat session not found: {chat_session_id}"
+            )
+        
+        service = GuidanceService(db)
+        result = service.provide_guidance(
+            project_id=session.project_id,
+            user_query=request.user_query,
+            chat_session_id=chat_session_id,
+            message_limit=request.message_limit
+        )
+        
+        return GuidanceResponse(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error providing guidance: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error providing guidance: {str(e)}"
+        )
+
+
+@app.get("/projects/{project_id}/workflow-state", response_model=WorkflowStateResponse)
+async def get_workflow_state(
+    project_id: str,
+    db: Session = Depends(get_db)
+) -> WorkflowStateResponse:
+    """
+    Get the current workflow state for a project.
+    
+    This endpoint returns the current state of the project:
+    - Whether it has a ProblemSpec
+    - Whether it has a WorldModel
+    - Whether it has runs
+    - Run count and project metadata
+    
+    Args:
+        project_id: Project ID
+        db: Database session
+        
+    Returns:
+        Workflow state response
+    """
+    try:
+        service = GuidanceService(db)
+        state = service.get_workflow_state(project_id)
+        
+        return WorkflowStateResponse(**state)
+        
+    except Exception as e:
+        logger.error(f"Error getting workflow state: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting workflow state: {str(e)}"
         )
 
 

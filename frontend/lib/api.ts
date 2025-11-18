@@ -83,6 +83,25 @@ export interface Candidate {
   constraint_flags?: string[];
 }
 
+export interface GuidanceResponse {
+  guidance_message: string;
+  suggested_actions: string[];
+  workflow_progress: {
+    current_stage: string;
+    completed_steps: string[];
+    next_steps: string[];
+  };
+}
+
+export interface WorkflowState {
+  has_problem_spec: boolean;
+  has_world_model: boolean;
+  has_runs: boolean;
+  run_count: number;
+  project_title?: string;
+  project_description?: string;
+}
+
 /**
  * Generic API fetch wrapper with error handling.
  */
@@ -237,6 +256,23 @@ export const runsApi = {
   getRankedCandidates: async (runId: string): Promise<Candidate[]> => {
     // After ranking, candidates should be available via the run
     return apiFetch<Candidate[]>(`/runs/${runId}/candidates`);
+  },
+};
+
+// Guidance endpoints
+export const guidanceApi = {
+  requestGuidance: async (
+    chatSessionId: string,
+    userQuery?: string,
+    messageLimit: number = 5
+  ): Promise<GuidanceResponse> => {
+    return apiFetch<GuidanceResponse>(`/chat-sessions/${chatSessionId}/guidance`, {
+      method: 'POST',
+      body: JSON.stringify({ user_query: userQuery, message_limit: messageLimit }),
+    });
+  },
+  getWorkflowState: async (projectId: string): Promise<WorkflowState> => {
+    return apiFetch<WorkflowState>(`/projects/${projectId}/workflow-state`);
   },
 };
 

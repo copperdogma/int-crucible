@@ -8,6 +8,7 @@ import ChatInterface from '@/components/ChatInterface';
 import SpecPanel from '@/components/SpecPanel';
 import RunConfigPanel from '@/components/RunConfigPanel';
 import ResultsView from '@/components/ResultsView';
+import WorkflowProgress from '@/components/WorkflowProgress';
 
 export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -117,6 +118,10 @@ export default function Home() {
         <div className="flex-1 flex overflow-hidden">
           {/* Chat interface */}
           <div className="flex-1 flex flex-col">
+            {/* Workflow progress indicator */}
+            <div className="px-4 pt-2">
+              <WorkflowProgress projectId={selectedProjectId} />
+            </div>
             <ChatInterface
               projectId={selectedProjectId}
               chatSessionId={selectedChatSessionId}

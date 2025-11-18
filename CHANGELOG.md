@@ -16,10 +16,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Poor error visibility and incomplete status reporting
   - Story includes comprehensive acceptance criteria, detailed debugging tasks, and test tooling requirements
   - Prioritized as High (008b) to address critical reliability issues
-- **Story 007b: Interactive Guidance and Onboarding Agent** (Story definition)
-  - Created story document for interactive guidance agent that will help users understand the Int Crucible workflow
-  - Story includes acceptance criteria, tasks, and implementation notes
-  - Prioritized as 007b (immediately after Story 007 UI)
+- **Story 007b: Interactive Guidance and Onboarding Agent** (Implementation)
+  - GuidanceAgent (`crucible/agents/guidance_agent.py`) - AI-native guidance agent that explains Int Crucible workflow, provides contextual help, and suggests next steps
+    - Uses tool-based approach for dynamic system queries
+    - Provides natural language guidance rather than rigid templates
+    - Adapts to project state (ProblemSpec, WorldModel, runs) for contextual suggestions
+  - GuidanceService (`crucible/services/guidance_service.py`) - Orchestrates guidance operations with tool creation
+    - Creates callable tools for querying project state, ProblemSpec, WorldModel, runs, and messages
+    - Determines workflow stage and provides state-aware guidance
+  - API endpoints for guidance:
+    - `POST /chat-sessions/{chat_session_id}/guidance` - Request guidance for a chat session
+    - `GET /projects/{project_id}/workflow-state` - Get current workflow state for contextual guidance
+  - Frontend integration:
+    - "Get Help" button in ChatInterface for requesting guidance
+    - WorkflowProgress component showing project progress through ProblemSpec → WorldModel → Run stages
+    - Guidance messages displayed in chat interface
+  - Comprehensive test suite:
+    - 3 unit tests for GuidanceAgent (`tests/unit/agents/test_guidance_agent.py`)
+  - Story document updated with implementation details and design philosophy
+- **Story 011: Native LLM Function Calling for Guidance Agent** (Story definition)
+  - Created story document for future enhancement to use native LLM function calling (Claude tool use, OpenAI functions)
+  - Currently guidance agent uses prompt-based tool descriptions; future enhancement will enable true tool invocation
+  - Prioritized as Medium
 - **Story 007: Chat-First Web UI** (UI improvements)
   - Auto-focus on project title input when create form opens
   - Prerequisites checking in Run Config panel (shows warning if ProblemSpec/WorldModel missing)
@@ -86,6 +104,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `frontend/app/globals.css` - Added CSS rules to hide devtools indicators
 - Updated `frontend/next.config.ts` - Disabled build activity indicator
 - Updated `docs/stories.md` - Added Story 007b, Story 008b, and Story 011 to story index
+- Updated `frontend/components/ChatInterface.tsx` - Added "Get Help" button and guidance message handling
+- Updated `frontend/app/page.tsx` - Integrated WorkflowProgress component
+- Updated `frontend/lib/api.ts` - Added guidance API client functions
+- Updated `.gitignore` - Added `.playwright-mcp/` directory
 
 ### Fixed
 - SQLite threading issues in integration tests by using file-based database instead of in-memory

@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { messagesApi, chatSessionsApi, problemSpecApi } from '@/lib/api';
-import { Message } from '@/lib/api';
+import { messagesApi, chatSessionsApi, problemSpecApi, guidanceApi } from '@/lib/api';
+import { Message, GuidanceResponse } from '@/lib/api';
 
 interface ChatInterfaceProps {
   projectId: string;
@@ -18,6 +18,7 @@ export default function ChatInterface({
 }: ChatInterfaceProps) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isRequestingGuidance, setIsRequestingGuidance] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -108,6 +109,33 @@ export default function ChatInterface({
     }
   };
 
+  const handleGetHelp = async () => {
+    if (!chatSessionId || isRequestingGuidance) return;
+
+    setIsRequestingGuidance(true);
+    try {
+      const guidance = await guidanceApi.requestGuidance(chatSessionId);
+      
+      // Add guidance message to chat
+      await messagesApi.create(chatSessionId, guidance.guidance_message, 'agent');
+      
+      // If there are suggested actions, add them as a follow-up message
+      if (guidance.suggested_actions && guidance.suggested_actions.length > 0) {
+        const actionsText = 'Suggested next steps:\n' + 
+          guidance.suggested_actions.map((action, idx) => `${idx + 1}. ${action}`).join('\n');
+        await messagesApi.create(chatSessionId, actionsText, 'agent');
+      }
+      
+      // Refetch messages to show the guidance
+      await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+    } catch (error) {
+      console.error('Failed to get guidance:', error);
+      alert('Failed to get guidance. Please try again.');
+    } finally {
+      setIsRequestingGuidance(false);
+    }
+  };
+
   if (messagesLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -118,6 +146,18 @@ export default function ChatInterface({
 
   return (
     <div className="flex-1 flex flex-col h-full">
+      {/* Header with Get Help button */}
+      <div className="border-b bg-white p-2 flex justify-end">
+        <button
+          onClick={handleGetHelp}
+          disabled={!chatSessionId || isRequestingGuidance}
+          className="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Get help and guidance on using Int Crucible"
+        >
+          {isRequestingGuidance ? 'Getting Help...' : 'Get Help'}
+        </button>
+      </div>
+
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
