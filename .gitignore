@@ -20,4 +20,20 @@ __pycache__/
 
 # Logs and databases
 *.log
-*.sqlite 
+*.sqlite
+*.db
+.env
+.env.local
+
+# Python build artifacts
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~ 

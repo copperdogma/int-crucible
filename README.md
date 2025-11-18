@@ -78,7 +78,75 @@ Then add the Kosmos subtree:
 git remote add kosmos https://github.com/jimmc414/Kosmos.git
 git subtree add --prefix=vendor/kosmos kosmos main --squash
 
-Run the Kosmos examples to ensure the environment is functional.
+Backend Setup
+
+The Int Crucible backend integrates with Kosmos for agent orchestration and infrastructure.
+
+Quick Setup:
+
+```bash
+# Automated setup (recommended)
+./setup_backend.sh
+
+# Or manual setup:
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -e vendor/kosmos  # Install Kosmos first
+pip install -e .  # Install Int Crucible backend
+cp .env.example .env  # Edit with your configuration
+```
+
+Configuration
+
+Edit `.env` file with your settings:
+
+- `DATABASE_URL`: Database connection string (default: `sqlite:///crucible.db`)
+- `LOG_LEVEL`: Logging verbosity (default: `INFO`)
+- `API_HOST` / `API_PORT`: API server settings
+- LLM Provider settings (see `.env.example` for options):
+  - Anthropic Claude: `LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=...`
+  - OpenAI: `LLM_PROVIDER=openai`, `OPENAI_API_KEY=...`
+  - Local (Ollama): `LLM_PROVIDER=openai`, `OPENAI_BASE_URL=http://localhost:11434/v1`
+
+Testing the Integration
+
+**Quick Verification (Recommended):**
+```bash
+# Run the automated verification script (checks installation)
+./verify_setup.sh
+
+# Then start the server (in a separate terminal or after verification)
+./start_server.sh
+```
+
+The verification script checks that everything is installed correctly. The start script actually starts the API server.
+
+**Manual Testing:**
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Test Kosmos integration
+crucible kosmos-test
+
+# List available Kosmos agents
+crucible kosmos-agents
+
+# Start the API server
+python -m crucible.api.main
+# Or use uvicorn directly:
+uvicorn crucible.api.main:app --reload
+```
+
+The API will be available at `http://127.0.0.1:8000` with:
+- `GET /` - Root endpoint
+- `GET /health` - Health check
+- `GET /kosmos/agents` - List available Kosmos agents
+- `POST /kosmos/test` - Test Kosmos integration
+
+API documentation is available at `http://127.0.0.1:8000/docs` when the server is running.
+
+**Need Help?** See `VERIFICATION_GUIDE.md` for detailed step-by-step instructions.
 
 ⸻
 
