@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kosmos
+  namespace: kosmos
+  labels:
+    app: kosmos
+    version: v1.0.0
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kosmos
+  template:
+    metadata:
+      labels:
+        app: kosmos
+        version: v1.0.0
+    spec:
+      containers:
+        - name: kosmos
+          image: kosmos:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            # Database connection (uses secrets for password)
+            - name: DATABASE_URL
+              value: "postgresql://kosmos:$(POSTGRES_PASSWORD)@postgres:5432/kosmos"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kosmos-secrets
+                  key: postgres-password
+            # Redis connection
+            - name: REDIS_URL
+              value: "redis://redis:6379/0"
+            # Anthropic API
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kosmos-secrets
+                  key: anthropic-api-key
+            # All other config from ConfigMap
+            - name: CLAUDE_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: kosmos-config
+                  key: CLAUDE_MODEL
+            - name: MAX_RESEARCH_ITERATIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: kosmos-config
+                  key: MAX_RESEARCH_ITERATIONS
+            - name: REDIS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: kosmos-config
+                  key: REDIS_ENABLED
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: kosmos-config
+                  key: LOG_LEVEL
+            - name: ENABLE_CONCURRENT_OPERATIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: kosmos-config
+                  key: ENABLE_CONCURRENT_OPERATIONS
+            - name: MAX_CONCURRENT_EXPERIMENTS
+              valueFrom:
+                configMapKeyRef:
+                  name: kosmos-config
+                  key: MAX_CONCURRENT_EXPERIMENTS
+          volumeMounts:
+            - name: logs
+              mountPath: /app/logs
+            - name: results
+              mountPath: /app/results
+          resources:
+            requests:
+              cpu: 1
+              memory: 2Gi
+            limits:
+              cpu: 4
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: logs
+          emptyDir: {}
+        - name: results
+          persistentVolumeClaim:
+            claimName: kosmos-results-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kosmos-results-pvc
+  namespace: kosmos
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 100Gi

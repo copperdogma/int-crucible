@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE PubmedArticleSet PUBLIC "-//NLM//DTD PubMedArticle, 1st January 2025//EN" "https://dtd.nlm.nih.gov/ncbi/pubmed/out/pubmed_250101.dtd">
+<PubmedArticleSet>
+  <PubmedArticle>
+    <MedlineCitation Status="MEDLINE" Owner="NLM">
+      <PMID Version="1">23287718</PMID>
+      <DateCompleted>
+        <Year>2013</Year>
+        <Month>08</Month>
+        <Day>02</Day>
+      </DateCompleted>
+      <DateRevised>
+        <Year>2013</Year>
+        <Month>02</Month>
+        <Day>15</Day>
+      </DateRevised>
+      <Article PubModel="Electronic">
+        <Journal>
+          <ISSN IssnType="Electronic">1095-9203</ISSN>
+          <JournalIssue CitedMedium="Internet">
+            <Volume>339</Volume>
+            <Issue>6121</Issue>
+            <PubDate>
+              <Year>2013</Year>
+              <Month>Feb</Month>
+              <Day>15</Day>
+            </PubDate>
+          </JournalIssue>
+          <Title>Science (New York, N.Y.)</Title>
+          <ISOAbbreviation>Science</ISOAbbreviation>
+        </Journal>
+        <ArticleTitle>Multiplex genome engineering using CRISPR/Cas systems.</ArticleTitle>
+        <Pagination>
+          <MedlinePgn>819-23</MedlinePgn>
+        </Pagination>
+        <Abstract>
+          <AbstractText>Genome engineering technologies based on the CRISPR-associated protein 9 (Cas9) nuclease from Streptococcus pyogenes enable rapid and efficient modification of endogenous genes in mammalian cells. We demonstrate that CRISPR-Cas9-mediated gene editing can be used to introduce both small and large modifications to endogenous genes in human cells with high efficiency and precision.</AbstractText>
+        </Abstract>
+        <AuthorList CompleteYN="Y">
+          <Author ValidYN="Y">
+            <LastName>Cong</LastName>
+            <ForeName>Le</ForeName>
+            <Initials>L</Initials>
+            <AffiliationInfo>
+              <Affiliation>Broad Institute of MIT and Harvard, Cambridge, MA 02142, USA.</Affiliation>
+            </AffiliationInfo>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Ran</LastName>
+            <ForeName>F Ann</ForeName>
+            <Initials>FA</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Cox</LastName>
+            <ForeName>David</ForeName>
+            <Initials>D</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Lin</LastName>
+            <ForeName>Shuailiang</ForeName>
+            <Initials>S</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Barretto</LastName>
+            <ForeName>Robert</ForeName>
+            <Initials>R</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Habib</LastName>
+            <ForeName>Naomi</ForeName>
+            <Initials>N</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Hsu</LastName>
+            <ForeName>Patrick D</ForeName>
+            <Initials>PD</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Wu</LastName>
+            <ForeName>Xuebing</ForeName>
+            <Initials>X</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Jiang</LastName>
+            <ForeName>Wenyan</ForeName>
+            <Initials>W</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Marraffini</LastName>
+            <ForeName>Luciano A</ForeName>
+            <Initials>LA</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Zhang</LastName>
+            <ForeName>Feng</ForeName>
+            <Initials>F</Initials>
+          </Author>
+        </AuthorList>
+        <Language>eng</Language>
+        <PublicationTypeList>
+          <PublicationType UI="D016428">Journal Article</PublicationType>
+          <PublicationType UI="D013485">Research Support, Non-U.S. Gov't</PublicationType>
+        </PublicationTypeList>
+        <ArticleDate DateType="Electronic">
+          <Year>2013</Year>
+          <Month>01</Month>
+          <Day>03</Day>
+        </ArticleDate>
+      </Article>
+      <MedlineJournalInfo>
+        <Country>United States</Country>
+        <MedlineTA>Science</MedlineTA>
+        <NlmUniqueID>0404511</NlmUniqueID>
+        <ISSNLinking>0036-8075</ISSNLinking>
+      </MedlineJournalInfo>
+      <ChemicalList>
+        <Chemical>
+          <RegistryNumber>EC 3.1.-</RegistryNumber>
+          <NameOfSubstance UI="D004720">Endonucleases</NameOfSubstance>
+        </Chemical>
+        <Chemical>
+          <RegistryNumber>EC 3.1.-</RegistryNumber>
+          <NameOfSubstance UI="C000595525">Cas9 endonuclease Streptococcus pyogenes</NameOfSubstance>
+        </Chemical>
+      </ChemicalList>
+      <MeshHeadingList>
+        <MeshHeading>
+          <DescriptorName UI="D064113" MajorTopicYN="N">CRISPR-Cas Systems</DescriptorName>
+        </MeshHeading>
+        <MeshHeading>
+          <DescriptorName UI="D000072669" MajorTopicYN="Y">Gene Editing</DescriptorName>
+        </MeshHeading>
+        <MeshHeading>
+          <DescriptorName UI="D016678" MajorTopicYN="N">Genome</DescriptorName>
+        </MeshHeading>
+        <MeshHeading>
+          <DescriptorName UI="D006801" MajorTopicYN="N">Humans</DescriptorName>
+        </MeshHeading>
+      </MeshHeadingList>
+    </MedlineCitation>
+    <PubmedData>
+      <ArticleIdList>
+        <ArticleId IdType="pubmed">23287718</ArticleId>
+        <ArticleId IdType="doi">10.1126/science.1231143</ArticleId>
+        <ArticleId IdType="pii">science.1231143</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>
+  <PubmedArticle>
+    <MedlineCitation Status="MEDLINE" Owner="NLM">
+      <PMID Version="1">28753425</PMID>
+      <DateCompleted>
+        <Year>2018</Year>
+        <Month>01</Month>
+        <Day>02</Day>
+      </DateCompleted>
+      <DateRevised>
+        <Year>2018</Year>
+        <Month>01</Month>
+        <Day>02</Day>
+      </DateRevised>
+      <Article PubModel="Print">
+        <Journal>
+          <ISSN IssnType="Electronic">1476-4687</ISSN>
+          <JournalIssue CitedMedium="Internet">
+            <Volume>548</Volume>
+            <Issue>7665</Issue>
+            <PubDate>
+              <Year>2017</Year>
+              <Month>Aug</Month>
+              <Day>03</Day>
+            </PubDate>
+          </JournalIssue>
+          <Title>Nature</Title>
+          <ISOAbbreviation>Nature</ISOAbbreviation>
+        </Journal>
+        <ArticleTitle>In vivo genome editing using Staphylococcus aureus Cas9.</ArticleTitle>
+        <Pagination>
+          <MedlinePgn>75-78</MedlinePgn>
+        </Pagination>
+        <Abstract>
+          <AbstractText>The RNA-guided endonuclease Cas9 has emerged as a versatile genome-editing tool. The most commonly used Cas9 is from Streptococcus pyogenes (SpCas9), but its large size limits its utility for in vivo genome editing. Here we characterize Staphylococcus aureus Cas9 (SaCas9) and demonstrate its ability to edit genes in vivo.</AbstractText>
+        </Abstract>
+        <AuthorList CompleteYN="Y">
+          <Author ValidYN="Y">
+            <LastName>Ran</LastName>
+            <ForeName>F Ann</ForeName>
+            <Initials>FA</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Cong</LastName>
+            <ForeName>Le</ForeName>
+            <Initials>L</Initials>
+          </Author>
+          <Author ValidYN="Y">
+            <LastName>Yan</LastName>
+            <ForeName>Winston X</ForeName>
+            <Initials>WX</Initials>
+          </Author>
+        </AuthorList>
+        <Language>eng</Language>
+        <PublicationTypeList>
+          <PublicationType UI="D016428">Journal Article</PublicationType>
+        </PublicationTypeList>
+      </Article>
+      <MedlineJournalInfo>
+        <Country>England</Country>
+        <MedlineTA>Nature</MedlineTA>
+        <NlmUniqueID>0410462</NlmUniqueID>
+        <ISSNLinking>0028-0836</ISSNLinking>
+      </MedlineJournalInfo>
+      <MeshHeadingList>
+        <MeshHeading>
+          <DescriptorName UI="D064113" MajorTopicYN="Y">CRISPR-Cas Systems</DescriptorName>
+        </MeshHeading>
+        <MeshHeading>
+          <DescriptorName UI="D000072669" MajorTopicYN="Y">Gene Editing</DescriptorName>
+        </MeshHeading>
+      </MeshHeadingList>
+    </MedlineCitation>
+    <PubmedData>
+      <ArticleIdList>
+        <ArticleId IdType="pubmed">28753425</ArticleId>
+        <ArticleId IdType="doi">10.1038/nature23451</ArticleId>
+      </ArticleIdList>
+    </PubmedData>
+  </PubmedArticle>
+</PubmedArticleSet>
