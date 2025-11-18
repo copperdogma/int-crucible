@@ -9,7 +9,7 @@ Int Crucible
 ## Story List
 | Story ID | Title                                             | Priority | Status   | Link                                                     |
 |----------|---------------------------------------------------|----------|----------|----------------------------------------------------------|
-| 001      | Bootstrap Kosmos-backed backend environment       | High     | To Do    | /docs/stories/story-001-bootstrap-kosmos-backend.md     |
+| 001      | Bootstrap Kosmos-backed backend environment       | High     | Done     | /docs/stories/story-001-bootstrap-kosmos-backend.md     |
 | 002      | Define and persist Int Crucible domain schema     | High     | To Do    | /docs/stories/story-002-domain-schema-and-storage.md    |
 | 003      | Implement ProblemSpec modelling flow              | High     | To Do    | /docs/stories/story-003-problemspec-agent-and-flow.md   |
 | 004      | Implement WorldModeller and world-model view      | High     | To Do    | /docs/stories/story-004-worldmodeller-and-spec-view.md  |

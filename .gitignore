@@ -31,6 +31,11 @@ dist/
 build/
 *.egg
 
+# Vendor build artifacts (but keep vendor source)
+vendor/*/.*egg-info/
+vendor/*/dist/
+vendor/*/build/
+
 # IDE
 .vscode/
 .idea/
