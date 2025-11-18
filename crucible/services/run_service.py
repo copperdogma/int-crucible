@@ -61,6 +61,11 @@ class RunService:
                 - reasoning: Designer reasoning
                 - count: Number of candidates created
         """
+        import time
+        start_time = time.time()
+        
+        logger.info(f"[Design Phase] Starting for run {run_id}, generating {num_candidates} candidates")
+        
         run = get_run(self.session, run_id)
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
@@ -81,12 +86,20 @@ class RunService:
                 num_candidates=num_candidates
             )
 
-            logger.info(f"Design phase completed for run {run_id}: {result['count']} candidates generated")
+            duration = time.time() - start_time
+            logger.info(
+                f"[Design Phase] Completed for run {run_id} in {duration:.2f}s: "
+                f"{result['count']} candidates generated"
+            )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error in design phase for run {run_id}: {e}", exc_info=True)
+            duration = time.time() - start_time
+            logger.error(
+                f"[Design Phase] Failed for run {run_id} after {duration:.2f}s: {e}",
+                exc_info=True
+            )
             update_run_status(self.session, run_id, RunStatus.FAILED.value)
             raise
 
@@ -109,6 +122,11 @@ class RunService:
                 - reasoning: ScenarioGenerator reasoning
                 - count: Number of scenarios created
         """
+        import time
+        start_time = time.time()
+        
+        logger.info(f"[Scenario Phase] Starting for run {run_id}, generating {num_scenarios} scenarios")
+        
         run = get_run(self.session, run_id)
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
@@ -121,12 +139,20 @@ class RunService:
                 num_scenarios=num_scenarios
             )
 
-            logger.info(f"Scenario phase completed for run {run_id}: {result['count']} scenarios generated")
+            duration = time.time() - start_time
+            logger.info(
+                f"[Scenario Phase] Completed for run {run_id} in {duration:.2f}s: "
+                f"{result['count']} scenarios generated"
+            )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error in scenario phase for run {run_id}: {e}", exc_info=True)
+            duration = time.time() - start_time
+            logger.error(
+                f"[Scenario Phase] Failed for run {run_id} after {duration:.2f}s: {e}",
+                exc_info=True
+            )
             raise
 
     def execute_design_and_scenario_phase(
@@ -210,6 +236,11 @@ class RunService:
                 - candidates_evaluated: Number of candidates evaluated
                 - scenarios_used: Number of scenarios used
         """
+        import time
+        start_time = time.time()
+        
+        logger.info(f"[Evaluation Phase] Starting for run {run_id}")
+        
         run = get_run(self.session, run_id)
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
@@ -221,15 +252,21 @@ class RunService:
                 project_id=run.project_id
             )
 
+            duration = time.time() - start_time
             logger.info(
-                f"Evaluation phase completed for run {run_id}: "
-                f"{result['count']} evaluations created for {result['candidates_evaluated']} candidates"
+                f"[Evaluation Phase] Completed for run {run_id} in {duration:.2f}s: "
+                f"{result['count']} evaluations created for {result['candidates_evaluated']} candidates "
+                f"across {result['scenarios_used']} scenarios"
             )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error in evaluation phase for run {run_id}: {e}", exc_info=True)
+            duration = time.time() - start_time
+            logger.error(
+                f"[Evaluation Phase] Failed for run {run_id} after {duration:.2f}s: {e}",
+                exc_info=True
+            )
             raise
 
     def execute_ranking_phase(
@@ -248,6 +285,11 @@ class RunService:
                 - count: Number of candidates ranked
                 - hard_constraint_violations: List of candidate IDs with hard constraint violations
         """
+        import time
+        start_time = time.time()
+        
+        logger.info(f"[Ranking Phase] Starting for run {run_id}")
+        
         run = get_run(self.session, run_id)
         if run is None:
             raise ValueError(f"Run not found: {run_id}")
@@ -259,15 +301,20 @@ class RunService:
                 project_id=run.project_id
             )
 
+            duration = time.time() - start_time
             logger.info(
-                f"Ranking phase completed for run {run_id}: "
+                f"[Ranking Phase] Completed for run {run_id} in {duration:.2f}s: "
                 f"{result['count']} candidates ranked, {len(result['hard_constraint_violations'])} hard violations"
             )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error in ranking phase for run {run_id}: {e}", exc_info=True)
+            duration = time.time() - start_time
+            logger.error(
+                f"[Ranking Phase] Failed for run {run_id} after {duration:.2f}s: {e}",
+                exc_info=True
+            )
             raise
 
     def execute_evaluate_and_rank_phase(
@@ -337,29 +384,76 @@ class RunService:
                 - rankings: Ranking phase results
                 - status: Overall status
         """
+        import time
+        start_time = time.time()
+        
+        logger.info(f"Starting full pipeline execution for run {run_id}")
+        
         run = get_run(self.session, run_id)
         if run is None:
+            logger.error(f"Run not found: {run_id}")
             raise ValueError(f"Run not found: {run_id}")
 
-        # Verify ProblemSpec and WorldModel exist
+        logger.info(f"Run found: {run_id}, project_id: {run.project_id}, status: {run.status}")
+
+        # Verify ProblemSpec and WorldModel exist with detailed logging
+        logger.info(f"Checking prerequisites for project {run.project_id}")
+        
+        # Refresh session to ensure we see committed data
+        self.session.expire_all()
+        
         problem_spec = get_problem_spec(self.session, run.project_id)
         if problem_spec is None:
-            raise ValueError(f"ProblemSpec not found for project {run.project_id}")
+            # Try to list available projects to help debug
+            from crucible.db.repositories import list_projects
+            projects = list_projects(self.session)
+            project_ids = [p.id for p in projects]
+            logger.error(
+                f"ProblemSpec not found for project {run.project_id}. "
+                f"Available projects: {project_ids}"
+            )
+            raise ValueError(
+                f"ProblemSpec not found for project {run.project_id}. "
+                f"Available projects: {project_ids}"
+            )
+        logger.info(f"ProblemSpec found for project {run.project_id}: {problem_spec.id}")
 
         world_model = get_world_model(self.session, run.project_id)
         if world_model is None:
+            logger.error(f"WorldModel not found for project {run.project_id}")
             raise ValueError(f"WorldModel not found for project {run.project_id}")
+        logger.info(f"WorldModel found for project {run.project_id}: {world_model.id}")
 
         try:
             # Phase 1: Design + Scenarios
+            logger.info(f"[Phase 1/2] Starting design + scenario phase for run {run_id}")
+            phase1_start = time.time()
+            
             design_scenario_result = self.execute_design_and_scenario_phase(
                 run_id=run_id,
                 num_candidates=num_candidates,
                 num_scenarios=num_scenarios
             )
+            
+            phase1_duration = time.time() - phase1_start
+            logger.info(
+                f"[Phase 1/2] Design + scenario phase completed in {phase1_duration:.2f}s: "
+                f"{design_scenario_result['candidates']['count']} candidates, "
+                f"{design_scenario_result['scenarios']['count']} scenarios"
+            )
 
             # Phase 2: Evaluate + Rank
+            logger.info(f"[Phase 2/2] Starting evaluate + rank phase for run {run_id}")
+            phase2_start = time.time()
+            
             evaluate_rank_result = self.execute_evaluate_and_rank_phase(run_id=run_id)
+            
+            phase2_duration = time.time() - phase2_start
+            logger.info(
+                f"[Phase 2/2] Evaluate + rank phase completed in {phase2_duration:.2f}s: "
+                f"{evaluate_rank_result['evaluations']['count']} evaluations, "
+                f"{evaluate_rank_result['rankings']['count']} candidates ranked"
+            )
 
             # Mark run as completed
             update_run_status(
@@ -369,18 +463,33 @@ class RunService:
                 completed_at=datetime.utcnow()
             )
 
-            logger.info(f"Full pipeline completed for run {run_id}")
+            total_duration = time.time() - start_time
+            logger.info(
+                f"Full pipeline completed for run {run_id} in {total_duration:.2f}s "
+                f"(phase1: {phase1_duration:.2f}s, phase2: {phase2_duration:.2f}s)"
+            )
 
             return {
                 "candidates": design_scenario_result["candidates"],
                 "scenarios": design_scenario_result["scenarios"],
                 "evaluations": evaluate_rank_result["evaluations"],
                 "rankings": evaluate_rank_result["rankings"],
-                "status": "completed"
+                "status": "completed",
+                "timing": {
+                    "total": total_duration,
+                    "phase1": phase1_duration,
+                    "phase2": phase2_duration
+                }
             }
 
         except Exception as e:
-            logger.error(f"Error in full pipeline for run {run_id}: {e}", exc_info=True)
-            update_run_status(self.session, run_id, RunStatus.FAILED.value)
+            logger.error(
+                f"Error in full pipeline for run {run_id} (project {run.project_id}): {e}",
+                exc_info=True
+            )
+            # Only set failed if we haven't already set a status
+            current_run = get_run(self.session, run_id)
+            if current_run and current_run.status != RunStatus.COMPLETED.value:
+                update_run_status(self.session, run_id, RunStatus.FAILED.value)
             raise
 

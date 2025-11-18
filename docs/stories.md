@@ -20,6 +20,7 @@ Int Crucible
 | 007b     | Implement interactive guidance and onboarding agent | High     | Done    | /docs/stories/story-007b-interactive-guidance-agent.md  |
 | 008      | Implement provenance and candidate lineage        | Medium   | To Do    | /docs/stories/story-008-provenance-and-lineage.md       |
 | 008b     | Add test tooling and fix run execution issues     | High     | To Do    | /docs/stories/story-008b-test-tooling-and-run-fixes.md  |
+| 008c     | Improve UI chat experience with streaming and automatic responses | High     | To Do    | /docs/stories/story-008c-ui-chat-improvements.md        |
 | 009      | Implement feedback loop and issue handling        | Medium   | To Do    | /docs/stories/story-009-feedback-and-issues.md          |
 | 010      | Support multiple chats and runs per project       | Medium   | To Do    | /docs/stories/story-010-multi-chat-and-run-history.md   |
 | 011      | Implement native LLM function calling for guidance agent | Medium   | To Do    | /docs/stories/story-011-native-llm-function-calling-for-guidance.md |

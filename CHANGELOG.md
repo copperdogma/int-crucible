@@ -8,14 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Story 008b: Test Tooling and Run Execution Fixes** (Story definition)
-  - Created story document for interactive test tooling and debugging infrastructure
-  - Addresses issues discovered during end-to-end testing:
-    - Run execution failures with "ProblemSpec or WorldModel not found" errors
-    - Lack of test tooling for interactive debugging
-    - Poor error visibility and incomplete status reporting
-  - Story includes comprehensive acceptance criteria, detailed debugging tasks, and test tooling requirements
-  - Prioritized as High (008b) to address critical reliability issues
+- **Story 008b: Test Tooling and Run Execution Fixes** (Implementation)
+  - Run execution fixes:
+    - Added session refresh (`session.expire_all()`) to fix "ProblemSpec or WorldModel not found" errors
+    - Enhanced error messages with available projects list for better debugging
+    - Fixed run status reporting to prevent overwriting "completed" status
+    - Added comprehensive logging with phase tags and timing information
+  - Test tooling CLI command (`crucible test-run`):
+    - Execute full pipeline with detailed progress reporting
+    - Verify existing runs with `--verify-only` flag
+    - Custom candidate/scenario counts
+    - Automatic verification of run completeness and data integrity
+    - Rich formatted output with tables and progress indicators
+  - Verification utilities (`crucible/services/run_verification.py`):
+    - `verify_run_completeness()` - Checks all expected entities exist
+    - `verify_data_integrity()` - Validates relationships and foreign keys
+    - `get_run_statistics()` - Provides detailed run statistics
+  - Comprehensive instrumentation:
+    - Phase-level logging with timing for all pipeline phases
+    - Entity count logging (candidates, scenarios, evaluations)
+    - Clear phase identification with tags like `[Design Phase]`, `[Phase 1/2]`
+  - Unit tests:
+    - 11 test cases for verification utilities
+    - 7 test cases for run service improvements
+    - Total: 18 unit tests covering error handling, status reporting, and verification
+  - E2E test script (`scripts/test_e2e_008b.py`):
+    - Tests with real database data
+    - Validates error handling, verification utilities, and session refresh fix
+    - All 4 E2E test scenarios passing
+  - Story document updated with implementation details and E2E test results
+- **Story 008c: UI Chat Improvements** (Story definition)
+  - Created story document for improving chat interface UX
+  - Requirements: busy indicator, streaming responses, automatic agent responses
+  - Removes "Get Help" button in favor of natural back-and-forth chat
+  - Prioritized as High (008c)
 - **Story 007b: Interactive Guidance and Onboarding Agent** (Implementation)
   - GuidanceAgent (`crucible/agents/guidance_agent.py`) - AI-native guidance agent that explains Int Crucible workflow, provides contextual help, and suggests next steps
     - Uses tool-based approach for dynamic system queries
