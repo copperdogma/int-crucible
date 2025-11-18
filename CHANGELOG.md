@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Story 008b: Test Tooling and Run Execution Fixes** (Story definition)
+  - Created story document for interactive test tooling and debugging infrastructure
+  - Addresses issues discovered during end-to-end testing:
+    - Run execution failures with "ProblemSpec or WorldModel not found" errors
+    - Lack of test tooling for interactive debugging
+    - Poor error visibility and incomplete status reporting
+  - Story includes comprehensive acceptance criteria, detailed debugging tasks, and test tooling requirements
+  - Prioritized as High (008b) to address critical reliability issues
 - **Story 007b: Interactive Guidance and Onboarding Agent** (Story definition)
   - Created story document for interactive guidance agent that will help users understand the Int Crucible workflow
   - Story includes acceptance criteria, tasks, and implementation notes
@@ -77,7 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated `frontend/app/layout.tsx` - Added suppressHydrationWarning for browser extensions
 - Updated `frontend/app/globals.css` - Added CSS rules to hide devtools indicators
 - Updated `frontend/next.config.ts` - Disabled build activity indicator
-- Updated `docs/stories.md` - Added Story 007b to story index
+- Updated `docs/stories.md` - Added Story 007b, Story 008b, and Story 011 to story index
 
 ### Fixed
 - SQLite threading issues in integration tests by using file-based database instead of in-memory
