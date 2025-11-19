@@ -37,11 +37,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Validates error handling, verification utilities, and session refresh fix
     - All 4 E2E test scenarios passing
   - Story document updated with implementation details and E2E test results
-- **Story 008c: UI Chat Improvements** (Story definition)
-  - Created story document for improving chat interface UX
-  - Requirements: busy indicator, streaming responses, automatic agent responses
-  - Removes "Get Help" button in favor of natural back-and-forth chat
-  - Prioritized as High (008c)
+- **Stories 012-016: Comprehensive Architect-Centric Chat Experience** (Story definitions)
+  - **Story 012: Architect-led conversational loop and full interaction logging**
+    - Replaces Story 008c with comprehensive architect persona approach
+    - Automatic Architect responses after every user message (removes "Get Help" button requirement)
+    - Full conversational logging with structured metadata (workflow_stage, guidance_type, related IDs)
+    - All interactions stored in `crucible_messages` for future analysis and improvement
+    - Error handling via system messages in chat instead of alerts
+  - **Story 013: Spec/world-model deltas and live highlighting**
+    - ProblemSpec/WorldModel refinements return structured delta summaries
+    - Compact "Spec update" lines in Architect replies with expandable details
+    - Spec panel visual highlighting with recency-based fade (most recent = vibrant, older = subtle)
+    - Delta information stored in message metadata for analyzable interaction log
+  - **Story 014: Streaming architect responses and typing indicators**
+    - Backend streaming support (SSE or StreamingResponse) for Architect replies
+    - Frontend streaming consumption with live message updates and auto-scroll
+    - Typing/busy indicator bubble in chat ("Architect is thinking...")
+    - Input area busy state feedback without freezing UI
+    - Graceful error handling with fallback to full response if streaming fails
+    - Final messages stored as coherent single entries in database
+  - **Story 015: Chat-first project creation and selection**
+    - Project creation moved into conversational flow (Architect greets, asks what you're working on)
+    - Architect infers project title/description from user's natural language response
+    - Project selector remains for multi-project management but creation is chat-driven
+    - All project creation steps logged as part of conversation transcript
+  - **Story 016: Run advisor contract and explicit execution control**
+    - Architect only advises on run configuration, never executes runs
+    - Run execution always requires explicit user button click (budget protection)
+    - Architect recommendations (mode, config) logged with metadata
+    - Post-run summaries from Architect logged as conversational events
+  - All stories prioritized as High
+  - Story 008c superseded and removed (ideas migrated into 012-016)
 - **Story 007b: Interactive Guidance and Onboarding Agent** (Implementation)
   - GuidanceAgent (`crucible/agents/guidance_agent.py`) - AI-native guidance agent that explains Int Crucible workflow, provides contextual help, and suggests next steps
     - Uses tool-based approach for dynamic system queries
