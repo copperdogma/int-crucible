@@ -274,5 +274,10 @@ export const guidanceApi = {
   getWorkflowState: async (projectId: string): Promise<WorkflowState> => {
     return apiFetch<WorkflowState>(`/projects/${projectId}/workflow-state`);
   },
+  generateArchitectReply: async (chatSessionId: string): Promise<Message> => {
+    return apiFetch<Message>(`/chat-sessions/${chatSessionId}/architect-reply`, {
+      method: 'POST',
+    });
+  },
 };
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { projectsApi } from '@/lib/api';
 import ProjectSelector from '@/components/ProjectSelector';
@@ -18,6 +18,15 @@ export default function Home() {
   const [showRunConfig, setShowRunConfig] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const queryClient = useQueryClient();
+  const specPanelScrollRef = useRef<HTMLDivElement>(null);
+  const hasScrolledToTopRef = useRef(false);
+
+  // Prevent browser from restoring scroll position
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+  }, []);
 
   // Reset chat session and clear cache when project changes
   useEffect(() => {
@@ -25,6 +34,17 @@ export default function Home() {
     setActiveRunId(null);
     // Clear messages cache to prevent showing old messages
     queryClient.removeQueries({ queryKey: ['messages'] });
+    // Scroll spec panel to top when project changes
+    if (specPanelScrollRef.current) {
+      // Find the inner scroll container
+      const scrollContainer = specPanelScrollRef.current.querySelector('.overflow-y-auto');
+      if (scrollContainer) {
+        // Small delay to ensure content is loaded
+        setTimeout(() => {
+          scrollContainer.scrollTop = 0;
+        }, 100);
+      }
+    }
   }, [selectedProjectId, queryClient]);
 
   const { data: projects, isLoading: projectsLoading } = useQuery({
@@ -115,24 +135,31 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden min-h-0">
           {/* Chat interface */}
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col min-h-0">
             {/* Workflow progress indicator */}
-            <div className="px-4 pt-2">
+            <div className="px-4 pt-2 flex-shrink-0">
               <WorkflowProgress projectId={selectedProjectId} />
             </div>
-            <ChatInterface
-              projectId={selectedProjectId}
-              chatSessionId={selectedChatSessionId}
-              onChatSessionChange={setSelectedChatSessionId}
-            />
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ChatInterface
+                projectId={selectedProjectId}
+                chatSessionId={selectedChatSessionId}
+                onChatSessionChange={setSelectedChatSessionId}
+              />
+            </div>
           </div>
 
           {/* Spec panel (right side) */}
           {showSpecPanel && (
-            <div className="w-96 border-l bg-white overflow-y-auto">
-              <SpecPanel projectId={selectedProjectId} />
+            <div 
+              ref={specPanelScrollRef}
+              className="w-96 border-l bg-white flex-shrink-0 flex flex-col overflow-hidden" 
+            >
+              <div className="flex-1 overflow-y-auto overflow-x-hidden">
+                <SpecPanel projectId={selectedProjectId} />
+              </div>
             </div>
           )}
         </div>

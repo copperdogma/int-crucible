@@ -91,6 +91,21 @@ We want:
     - Ensuring only one project is created per new conversational flow.
     - Providing a clear path to discard or rename a just-created project if it was a misfire.
 
+- **Browser testing and UI verification**:
+  - [ ] **CRITICAL**: Use browser tools to test the implementation in the live UI:
+    - Start the frontend and backend servers.
+    - Test first-time user flow (no existing projects):
+      - Verify Architect greeting appears automatically.
+      - Send a problem description and verify project is created.
+      - Verify project appears in selector immediately.
+      - Verify active project is clearly indicated in UI.
+    - Test returning user flow (existing projects):
+      - Verify project list is accessible.
+      - Create additional project via "New Project" and verify chat-first flow.
+      - Verify project switching works correctly.
+    - Verify the UI is elegant, functional, and matches the acceptance criteria.
+    - Fix any issues found during browser testing before proceeding to sign-off.
+
 - **Sign-off**:
   - [ ] Walk through:
     - First-time user flow (no existing projects).

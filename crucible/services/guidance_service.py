@@ -218,6 +218,10 @@ class GuidanceService:
 
         result = self.agent.execute(task)
 
+        # Add structured metadata for conversational logging
+        result["workflow_stage"] = workflow_stage
+        result["guidance_type"] = self._determine_guidance_type(user_query, workflow_stage, project_state)
+        
         return result
 
     def _determine_workflow_stage(self, project_state: Dict[str, Any]) -> str:
@@ -242,4 +246,52 @@ class GuidanceService:
             return "ready_to_run"
         else:
             return "completed"
+    
+    def _determine_guidance_type(
+        self,
+        user_query: Optional[str],
+        workflow_stage: str,
+        project_state: Dict[str, Any]
+    ) -> str:
+        """
+        Determine the type of guidance being provided.
+
+        Args:
+            user_query: Optional user query
+            workflow_stage: Current workflow stage
+            project_state: Project state dict
+
+        Returns:
+            Guidance type string (e.g., 'spec_refinement', 'clarification', 'run_recommendation')
+        """
+        if not user_query:
+            # No specific query - general contextual guidance
+            if workflow_stage == "setup":
+                return "setup_guidance"
+            elif workflow_stage == "ready_to_run":
+                return "run_recommendation"
+            else:
+                return "general_guidance"
+        
+        # Analyze user query to determine guidance type
+        query_lower = user_query.lower()
+        
+        # Check for spec-related queries
+        if any(term in query_lower for term in ["problem", "spec", "constraint", "goal", "requirement"]):
+            return "spec_refinement"
+        
+        # Check for world model queries
+        if any(term in query_lower for term in ["world model", "model", "actor", "mechanism"]):
+            return "world_model_guidance"
+        
+        # Check for run-related queries
+        if any(term in query_lower for term in ["run", "execute", "pipeline", "candidate", "evaluation"]):
+            return "run_recommendation"
+        
+        # Check for clarification requests
+        if any(term in query_lower for term in ["what", "how", "why", "explain", "help", "?"]):
+            return "clarification"
+        
+        # Default to contextual guidance
+        return "contextual_guidance"
 

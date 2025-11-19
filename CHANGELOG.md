@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Story 012: Architect-led Conversational Loop and Full Interaction Logging** (Implementation)
+  - Architect auto-reply functionality:
+    - Automatic Architect responses after every user message (removed "Get Help" button requirement)
+    - New API endpoint `/chat-sessions/{id}/architect-reply` for generating Architect replies
+    - Architect persona clearly labeled in UI with `agent_name: "Architect"` metadata
+    - Workflow-aware guidance based on project state (setup/ready_to_run/completed)
+  - Full conversational logging:
+    - All user messages, Architect responses, and system events stored in `crucible_messages`
+    - Structured metadata includes: `workflow_stage`, `guidance_type`, `agent_name`, `suggested_actions`
+    - Error handling creates system messages instead of breaking conversation flow
+    - Complete interaction log enables future analysis and UX improvements
+  - GuidanceService enhancements:
+    - `_determine_guidance_type()` method categorizes guidance (spec_refinement, clarification, run_recommendation, etc.)
+    - Metadata enrichment for all Architect responses
+    - Tool-based approach for dynamic system queries
+  - Frontend improvements:
+    - Auto-focus on chat input when entering chat mode and after Architect replies
+    - Loading indicators: "Sending..." and "Architect is replying..." states
+    - Inline system/error messages in chat (no alerts)
+    - Fixed SpecPanel scrolling with proper flex layout and nested scroll containers
+    - Fixed WorkflowProgress text color (changed from blue to gray to avoid confusion with clickable elements)
+    - Fixed chat input visibility (ensured input area remains visible with proper flex constraints)
+  - Architecture documentation:
+    - Added "Conversational Logging" section to `docs/architecture.md`
+    - Documents decision to treat conversations as canonical interaction log
+  - Comprehensive browser testing:
+    - All acceptance criteria verified in live UI
+    - Tested auto-reply functionality, UI labeling, error handling, and conversation flow
+    - All UI issues identified and resolved
 - **Story 008b: Test Tooling and Run Execution Fixes** (Implementation)
   - Run execution fixes:
     - Added session refresh (`session.expire_all()`) to fix "ProblemSpec or WorldModel not found" errors

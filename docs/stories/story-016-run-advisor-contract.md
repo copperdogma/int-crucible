@@ -98,6 +98,24 @@ We want:
     - Shown both in the Run Config panel.
     - Communicated by the Architect when asked in chat.
 
+- **Browser testing and UI verification**:
+  - [ ] **CRITICAL**: Use browser tools to test the implementation in the live UI:
+    - Start the frontend and backend servers.
+    - Navigate to the chat interface and Run Config panel.
+    - Test run recommendation flow:
+      - Ask Architect to run the pipeline in chat.
+      - Verify Architect recommends config but states it cannot start runs directly.
+      - Verify recommended config appears in Run Config panel (if applicable).
+      - Verify Run button is the only way to start execution.
+    - Test error handling:
+      - Ask to run without prerequisites and verify Architect explains what's missing.
+      - Verify error messages appear in both chat and Run Config panel.
+    - Test post-run summaries:
+      - Execute a run and verify summary appears in chat when complete.
+      - Verify summary is properly labeled and linked.
+    - Verify the UI is elegant, functional, and matches the acceptance criteria.
+    - Fix any issues found during browser testing before proceeding to sign-off.
+
 - **Sign-off**:
   - [ ] Test flows where:
     - The user asks the Architect to run, then clicks the Run button.

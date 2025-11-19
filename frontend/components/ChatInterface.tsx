@@ -18,8 +18,9 @@ export default function ChatInterface({
 }: ChatInterfaceProps) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [isRequestingGuidance, setIsRequestingGuidance] = useState(false);
+  const [isGeneratingReply, setIsGeneratingReply] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   // Get or create default chat session
@@ -72,6 +73,16 @@ export default function ChatInterface({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Auto-focus input when chat session is ready
+  useEffect(() => {
+    if (chatSessionId && !messagesLoading) {
+      // Small delay to ensure input is rendered
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [chatSessionId, messagesLoading]);
+
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
       if (!chatSessionId) throw new Error('No chat session');
@@ -81,15 +92,33 @@ export default function ChatInterface({
       // Refetch messages
       await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
       
-      // Trigger ProblemSpec refinement
-      try {
-        await problemSpecApi.refine(projectId, chatSessionId);
-        // Refetch problem spec and world model
-        queryClient.invalidateQueries({ queryKey: ['problemSpec', projectId] });
-        queryClient.invalidateQueries({ queryKey: ['worldModel', projectId] });
-      } catch (error) {
+      // Trigger ProblemSpec refinement (in background)
+      problemSpecApi.refine(projectId, chatSessionId).catch((error) => {
         console.error('Failed to refine problem spec:', error);
+      });
+      
+      // Automatically generate Architect reply
+      setIsGeneratingReply(true);
+      try {
+        await guidanceApi.generateArchitectReply(chatSessionId);
+        // Refetch messages to show the Architect reply
+        await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+      } catch (error) {
+        console.error('Failed to generate Architect reply:', error);
+        // Error handling is done on the backend - it creates a system message
+        // Just refetch to show any system error messages
+        await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+      } finally {
+        setIsGeneratingReply(false);
+        // Refocus input after Architect reply completes
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 100);
       }
+      
+      // Refetch problem spec and world model (may have been updated)
+      queryClient.invalidateQueries({ queryKey: ['problemSpec', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['worldModel', projectId] });
     },
   });
 
@@ -109,32 +138,6 @@ export default function ChatInterface({
     }
   };
 
-  const handleGetHelp = async () => {
-    if (!chatSessionId || isRequestingGuidance) return;
-
-    setIsRequestingGuidance(true);
-    try {
-      const guidance = await guidanceApi.requestGuidance(chatSessionId);
-      
-      // Add guidance message to chat
-      await messagesApi.create(chatSessionId, guidance.guidance_message, 'agent');
-      
-      // If there are suggested actions, add them as a follow-up message
-      if (guidance.suggested_actions && guidance.suggested_actions.length > 0) {
-        const actionsText = 'Suggested next steps:\n' + 
-          guidance.suggested_actions.map((action, idx) => `${idx + 1}. ${action}`).join('\n');
-        await messagesApi.create(chatSessionId, actionsText, 'agent');
-      }
-      
-      // Refetch messages to show the guidance
-      await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
-    } catch (error) {
-      console.error('Failed to get guidance:', error);
-      alert('Failed to get guidance. Please try again.');
-    } finally {
-      setIsRequestingGuidance(false);
-    }
-  };
 
   if (messagesLoading) {
     return (
@@ -146,18 +149,6 @@ export default function ChatInterface({
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {/* Header with Get Help button */}
-      <div className="border-b bg-white p-2 flex justify-end">
-        <button
-          onClick={handleGetHelp}
-          disabled={!chatSessionId || isRequestingGuidance}
-          className="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          title="Get help and guidance on using Int Crucible"
-        >
-          {isRequestingGuidance ? 'Getting Help...' : 'Get Help'}
-        </button>
-      </div>
-
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
@@ -182,7 +173,11 @@ export default function ChatInterface({
                 }`}
               >
                 <div className="text-sm font-medium mb-1">
-                  {msg.role === 'user' ? 'You' : msg.role === 'agent' ? 'Agent' : 'System'}
+                  {msg.role === 'user' 
+                    ? 'You' 
+                    : msg.role === 'agent' 
+                    ? (msg.message_metadata?.agent_name || 'Architect')
+                    : 'System'}
                 </div>
                 <div className="whitespace-pre-wrap">{msg.content}</div>
                 {msg.created_at && (
@@ -220,9 +215,10 @@ export default function ChatInterface({
       </div>
 
       {/* Input area */}
-      <div className="border-t bg-white p-4 chat-input-area">
+      <div className="border-t bg-white p-4 chat-input-area flex-shrink-0">
         <form onSubmit={handleSend} className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -232,10 +228,10 @@ export default function ChatInterface({
           />
           <button
             type="submit"
-            disabled={isSending || !message.trim() || !chatSessionId}
+            disabled={isSending || isGeneratingReply || !message.trim() || !chatSessionId}
             className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isSending ? 'Sending...' : 'Send'}
+            {isSending ? 'Sending...' : isGeneratingReply ? 'Architect is replying...' : 'Send'}
           </button>
         </form>
       </div>

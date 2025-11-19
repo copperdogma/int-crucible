@@ -103,8 +103,24 @@ The goal is to make the Architect behave like modern AI chat interfaces:
     - Streaming success + completion.
     - Streaming failure (with a clear message).
   - [ ] Verify that:
-    - The user always sees a clear “the system is working” state when waiting.
+    - The user always sees a clear "the system is working" state when waiting.
     - On failure, they get understandable feedback and the ability to retry or continue.
+
+- **Browser testing and UI verification**:
+  - [ ] **CRITICAL**: Use browser tools to test the implementation in the live UI:
+    - Start the frontend and backend servers.
+    - Navigate to the chat interface.
+    - Send messages and verify:
+      - Typing indicator appears quickly when Architect is generating a reply.
+      - Architect responses stream in smoothly (token by token or chunk by chunk).
+      - Auto-scroll follows the streaming text without jitter.
+      - Input area shows appropriate busy state during streaming.
+      - Streaming completes cleanly and final message is stored correctly.
+      - Error handling works gracefully (test with network throttling if possible).
+      - UI remains responsive during streaming (no freezing or jank).
+    - Test with short, medium, and long responses to verify performance.
+    - Verify the UI is elegant, functional, and matches the acceptance criteria.
+    - Fix any issues found during browser testing before proceeding to sign-off.
 
 - **Sign-off**:
   - [ ] Test streaming with:

@@ -1593,6 +1593,126 @@ async def request_guidance(
         )
 
 
+@app.post("/chat-sessions/{chat_session_id}/architect-reply", response_model=MessageResponse)
+async def generate_architect_reply(
+    chat_session_id: str,
+    db: Session = Depends(get_db)
+) -> MessageResponse:
+    """
+    Automatically generate an Architect reply after a user message.
+    
+    This endpoint:
+    - Gets the latest user message from the chat session
+    - Uses the Guidance service to generate an Architect response
+    - Stores the Architect response as a message with structured metadata
+    - Returns the created message
+    
+    Args:
+        chat_session_id: Chat session ID
+        db: Database session
+        
+    Returns:
+        Created Architect message with metadata
+    """
+    try:
+        from crucible.db.repositories import get_chat_session, list_messages, create_message as repo_create_message
+        
+        # Get chat session to find project_id
+        session = get_chat_session(db, chat_session_id)
+        if session is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Chat session not found: {chat_session_id}"
+            )
+        
+        # Get the latest user message to use as context
+        messages = list_messages(db, chat_session_id)
+        from crucible.db.models import MessageRole
+        user_messages = [m for m in messages if (m.role.value if hasattr(m.role, "value") else str(m.role)) == "user"]
+        latest_user_message = user_messages[-1] if user_messages else None
+        user_query = latest_user_message.content if latest_user_message else None
+        
+        # Generate guidance using GuidanceService
+        service = GuidanceService(db)
+        result = service.provide_guidance(
+            project_id=session.project_id,
+            user_query=user_query,
+            chat_session_id=chat_session_id,
+            message_limit=5
+        )
+        
+        # Build message metadata
+        message_metadata = {
+            "agent_name": "Architect",
+            "workflow_stage": result.get("workflow_stage", "setup"),
+            "guidance_type": result.get("guidance_type", "general_guidance"),
+        }
+        
+        # Add suggested actions to metadata if present
+        if result.get("suggested_actions"):
+            message_metadata["suggested_actions"] = result["suggested_actions"]
+        
+        # Combine guidance message with suggested actions if needed
+        content = result.get("guidance_message", "")
+        if result.get("suggested_actions") and len(result["suggested_actions"]) > 0:
+            # Append suggested actions to the message
+            actions_text = "\n\nSuggested next steps:\n" + "\n".join(
+                f"{idx + 1}. {action}" for idx, action in enumerate(result["suggested_actions"])
+            )
+            content += actions_text
+        
+        # Create and store the Architect message
+        from crucible.db.models import MessageRole
+        architect_message = repo_create_message(
+            db,
+            chat_session_id=chat_session_id,
+            role=MessageRole.AGENT,
+            content=content,
+            message_metadata=message_metadata
+        )
+        
+        return MessageResponse(
+            id=architect_message.id,
+            chat_session_id=architect_message.chat_session_id,
+            role=architect_message.role.value,
+            content=architect_message.content,
+            message_metadata=architect_message.message_metadata,
+            created_at=architect_message.created_at.isoformat() if architect_message.created_at else None,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating Architect reply: {e}", exc_info=True)
+        # Create a system error message instead of raising
+        try:
+            from crucible.db.repositories import create_message as repo_create_message
+            from crucible.db.models import MessageRole
+            
+            error_message = repo_create_message(
+                db,
+                chat_session_id=chat_session_id,
+                role=MessageRole.SYSTEM,
+                content=f"I encountered an error while generating a response. Please try again or continue with your conversation.",
+                message_metadata={"error": str(e), "error_type": "architect_reply_failed"}
+            )
+            
+            return MessageResponse(
+                id=error_message.id,
+                chat_session_id=error_message.chat_session_id,
+                role=error_message.role.value,
+                content=error_message.content,
+                message_metadata=error_message.message_metadata,
+                created_at=error_message.created_at.isoformat() if error_message.created_at else None,
+            )
+        except Exception as inner_e:
+            logger.error(f"Error creating error message: {inner_e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error generating Architect reply: {str(e)}"
+            )
+
+
 @app.get("/projects/{project_id}/workflow-state", response_model=WorkflowStateResponse)
 async def get_workflow_state(
     project_id: str,

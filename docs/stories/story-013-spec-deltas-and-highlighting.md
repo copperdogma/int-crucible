@@ -87,11 +87,24 @@ This makes it harder to:
     - Implement a simple recency decay (e.g., storing a timestamp or “age” value per section).
 
 - **UX & validation**:
-  - [ ] Verify that the delta summary line remains **succinct** and doesn’t overwhelm the chat.
+  - [ ] Verify that the delta summary line remains **succinct** and doesn't overwhelm the chat.
   - [ ] Confirm that spec highlighting feels helpful and not distracting (tune colors and timing).
   - [ ] Run through a setup session and visually confirm:
     - Each meaningful change is communicated in chat.
     - The spec panel clearly shows what was updated last.
+
+- **Browser testing and UI verification**:
+  - [ ] **CRITICAL**: Use browser tools to test the implementation in the live UI:
+    - Start the frontend and backend servers.
+    - Navigate to the chat interface and spec panel.
+    - Send messages that trigger ProblemSpec/WorldModel refinements and verify:
+      - Delta summaries appear in Architect messages (compact and readable).
+      - Spec/world-model panel highlights recently changed sections.
+      - Highlighting fades appropriately over time.
+      - Toggle/expander for detailed deltas works correctly.
+      - Visual design is elegant and not distracting.
+    - Verify the UI is functional, responsive, and matches the acceptance criteria.
+    - Fix any issues found during browser testing before proceeding to sign-off.
 
 - **Sign-off**:
   - [ ] Capture an example session in screenshots or notes, showing:

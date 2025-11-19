@@ -104,6 +104,24 @@ Int Crucible uses a shared database (PostgreSQL or SQLite) with Kosmos. Crucible
 - **No Conflicts**: Crucible tables use `crucible_` prefix; Kosmos tables remain unchanged
 - **Future Integration**: Schema designed to allow future graph/knowledge-graph integration similar to Kosmos
 
+### Conversational Logging
+
+**Decision**: Conversations stored in `crucible_messages` serve as the canonical interaction log for analysis and improvement.
+
+- **Complete Logging**: Every user message, Architect response, and system event is stored as a message with:
+  - `role` (user/agent/system) indicating the message source
+  - `content` (human-readable text)
+  - `message_metadata` (JSON) with structured details:
+    - For Architect messages: `agent_name`, `workflow_stage`, `guidance_type`, `suggested_actions`
+    - For system messages: error details, event types, related IDs
+- **Structured Metadata**: Architect responses include workflow context (`workflow_stage`, `guidance_type`) to enable analysis of guidance patterns and effectiveness
+- **No Hidden State**: All user-visible decisions and system actions are represented either as messages or as metadata on messages
+- **Analysis Ready**: The complete conversational log enables:
+  - Reconstruction of user sessions for debugging and improvement
+  - Analysis of guidance patterns and agent behavior
+  - Future UX improvements based on interaction patterns
+  - Provenance tracking of how ProblemSpecs and WorldModels evolved through conversation
+
 ### Migrations
 
 Migrations are managed via Alembic. The Alembic configuration (`alembic/env.py`) combines metadata from both Kosmos and Crucible models to ensure all tables are tracked.

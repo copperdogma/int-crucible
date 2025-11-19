@@ -31,7 +31,7 @@ export default function WorkflowProgress({ projectId }: WorkflowProgressProps) {
     <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-4">
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-sm font-semibold text-blue-900">Workflow Progress</h4>
-        <span className="text-xs text-blue-700">
+        <span className="text-xs text-gray-600">
           {completedCount} / {totalSteps} steps completed
         </span>
       </div>
@@ -50,7 +50,7 @@ export default function WorkflowProgress({ projectId }: WorkflowProgressProps) {
           />
         ))}
       </div>
-      <div className="mt-2 text-xs text-blue-700">
+      <div className="mt-2 text-xs text-gray-600">
         {!workflowState.has_problem_spec && (
           <span>Start by chatting to create a ProblemSpec</span>
         )}

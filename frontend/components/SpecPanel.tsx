@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { problemSpecApi, worldModelApi } from '@/lib/api';
 
@@ -8,6 +9,8 @@ interface SpecPanelProps {
 }
 
 export default function SpecPanel({ projectId }: SpecPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  
   const { data: problemSpec, isLoading: specLoading, error: specError } = useQuery({
     queryKey: ['problemSpec', projectId],
     queryFn: () => problemSpecApi.get(projectId),
@@ -34,6 +37,20 @@ export default function SpecPanel({ projectId }: SpecPanelProps) {
     },
   });
 
+  // Function to find scroll container
+  const findScrollContainer = (): HTMLElement | null => {
+    if (!panelRef.current) return null;
+    let scrollContainer = panelRef.current.parentElement;
+    while (scrollContainer && !scrollContainer.classList.contains('overflow-y-auto')) {
+      scrollContainer = scrollContainer.parentElement;
+    }
+    return scrollContainer as HTMLElement | null;
+  };
+
+  // Note: Scroll-to-top is handled by parent component (page.tsx)
+  // to avoid conflicts and ensure it only happens when needed
+
+
   if (specLoading || modelLoading) {
     return (
       <div className="p-4">
@@ -57,7 +74,7 @@ export default function SpecPanel({ projectId }: SpecPanelProps) {
   }
 
   return (
-    <div className="p-4 space-y-6">
+    <div ref={panelRef} className="p-4 space-y-6" style={{ minHeight: 'min-content' }}>
       <h3 className="text-lg font-semibold text-gray-900">Problem Specification</h3>
 
       {/* Goals */}
