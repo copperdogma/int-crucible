@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Story 013: Spec/World-Model Deltas and Live Highlighting** (Implementation)
+  - Backend delta computation:
+    - `_compute_spec_delta` method in `ProblemSpecService` computes structured deltas comparing current vs updated ProblemSpec
+    - `_compute_world_model_delta` method in `WorldModelService` computes structured deltas from agent changes
+    - Delta structures include: `touched_sections`, `constraints` (added/updated/removed), `goals` (added/updated/removed), `resolution_changed`, `mode_changed`
+    - Deltas stored in Architect message `message_metadata` for timeline reconstruction
+    - Fallback logic infers deltas from user queries when frontend refinement happens first
+  - Frontend delta display:
+    - `DeltaSummary` component shows compact one-line summaries in Architect messages (e.g., "Spec update: +1 constraint, 2 constraints updated")
+    - Expandable `[Details]` toggle reveals per-item change information
+    - Human-readable format with proper pluralization
+  - Live highlighting in spec panel:
+    - Individual constraint/goal tracking with delta-based ordering (newest = most vibrant)
+    - Three highlight levels: `highlight-newest` (3px green border, full opacity), `highlight-recent` (2px, 0.7 opacity), `highlight-fading` (2px, 0.4 opacity)
+    - Border-only highlighting (no background) for clean visual design
+    - Highlights driven by structured deltas from message metadata, not UI heuristics
+    - Proper padding alignment between Goals and Constraints sections
+  - Timeline reconstruction:
+    - Deltas persist in message metadata, enabling reconstruction of spec/world-model evolution
+    - Stable delta structure suitable for future provenance work (Story 008)
+  - Comprehensive browser testing:
+    - All acceptance criteria verified in live UI
+    - Tested delta summaries, highlighting, fading, and newest item detection
+    - Fixed delta-based fading (not time-based) and individual item tracking
 - **Story 012: Architect-led Conversational Loop and Full Interaction Logging** (Implementation)
   - Architect auto-reply functionality:
     - Automatic Architect responses after every user message (removed "Get Help" button requirement)

@@ -287,6 +287,7 @@ class ProblemSpecRefineResponse(BaseModel):
     reasoning: str
     ready_to_run: bool
     applied: bool
+    spec_delta: Optional[dict] = None
 
 
 # Pydantic models for WorldModel API
@@ -312,6 +313,7 @@ class WorldModelRefineResponse(BaseModel):
     reasoning: str
     ready_to_run: bool
     applied: bool
+    world_model_delta: Optional[dict] = None
 
 
 class WorldModelUpdateRequest(BaseModel):
@@ -1632,25 +1634,171 @@ async def generate_architect_reply(
         latest_user_message = user_messages[-1] if user_messages else None
         user_query = latest_user_message.content if latest_user_message else None
         
-        # Generate guidance using GuidanceService
-        service = GuidanceService(db)
-        result = service.provide_guidance(
+        # Check if we should refine ProblemSpec or WorldModel based on user query
+        # This captures deltas even if refinement happens as part of Architect flow
+        spec_delta = None
+        world_model_delta = None
+        touched_sections = []
+        
+        # Determine if refinement is needed based on guidance type and workflow stage
+        guidance_service = GuidanceService(db)
+        guidance_result = guidance_service.provide_guidance(
             project_id=session.project_id,
             user_query=user_query,
             chat_session_id=chat_session_id,
             message_limit=5
         )
         
+        guidance_type = guidance_result.get("guidance_type", "general_guidance")
+        workflow_stage = guidance_result.get("workflow_stage", "setup")
+        
+        # Refine ProblemSpec if it seems appropriate (spec-related query or early stage)
+        # Note: Frontend may have already called refine, so we check if spec was recently updated
+        if guidance_type in ["spec_refinement", "setup_guidance"] or workflow_stage == "setup":
+            try:
+                from crucible.db.repositories import get_problem_spec
+                from datetime import datetime, timedelta
+                
+                current_spec = get_problem_spec(db, session.project_id)
+                # Only refine if spec wasn't updated in the last 2 seconds (to avoid duplicate refinement)
+                should_refine = True
+                if current_spec and current_spec.updated_at:
+                    time_since_update = (datetime.utcnow() - current_spec.updated_at.replace(tzinfo=None)).total_seconds()
+                    if time_since_update < 2:
+                        # Spec was just updated, try to get delta from the refine endpoint response
+                        # by checking the most recent refine call result
+                        should_refine = False
+                        logger.info(f"Spec was updated {time_since_update:.1f}s ago, skipping duplicate refine")
+                
+                if should_refine:
+                    spec_service = ProblemSpecService(db)
+                    spec_result = spec_service.refine_problem_spec(
+                        project_id=session.project_id,
+                        chat_session_id=chat_session_id,
+                        message_limit=20
+                    )
+                    spec_delta = spec_result.get("spec_delta")
+                else:
+                    # Spec was just updated, still call refine to get delta (even if empty)
+                    spec_service = ProblemSpecService(db)
+                    spec_result = spec_service.refine_problem_spec(
+                        project_id=session.project_id,
+                        chat_session_id=chat_session_id,
+                        message_limit=20
+                    )
+                    spec_delta = spec_result.get("spec_delta")
+                
+                # Apply fallback logic if delta is empty (applies to both should_refine and !should_refine cases)
+                if spec_delta:
+                    # Check if delta exists but has no touched sections, OR if delta is None/empty
+                    delta_is_empty = ((not spec_delta.get("touched_sections") or len(spec_delta.get("touched_sections", [])) == 0) and
+                                     not any(spec_delta.get("constraints", {}).get(k, []) for k in ["added", "updated", "removed"]) and
+                                     not any(spec_delta.get("goals", {}).get(k, []) for k in ["added", "updated", "removed"]) and
+                                     not spec_delta.get("resolution_changed") and
+                                     not spec_delta.get("mode_changed"))
+                else:
+                    delta_is_empty = True
+                    spec_delta = {}
+                
+                # Always try fallback if delta is empty and we have a user query
+                if delta_is_empty and user_query:
+                    logger.info(f"Delta is empty, attempting fallback for query: {user_query}")
+                    # Fallback: infer delta from user query
+                    query_lower = user_query.lower()
+                    constraint_names_in_query = []
+                    
+                    # Check for constraint-related keywords
+                    if any(word in query_lower for word in ["constraint", "budget", "cost", "price", "size", "dimension", "maintain", "clean", "safety", "stimulation"]):
+                        # Try to extract constraint names or infer from context
+                        if "budget" in query_lower or "$" in query_lower or "cost" in query_lower or "price" in query_lower:
+                            constraint_names_in_query.append("Budget")
+                        if "size" in query_lower or "dimension" in query_lower or "x" in query_lower or "feet" in query_lower or "ft" in query_lower or "'" in query_lower:
+                            constraint_names_in_query.append("Size")
+                        if "maintain" in query_lower or "clean" in query_lower:
+                            constraint_names_in_query.append("Maintenance")
+                        if "safety" in query_lower:
+                            constraint_names_in_query.append("Safety")
+                        if "stimulation" in query_lower or "stimulate" in query_lower:
+                            constraint_names_in_query.append("Stimulation")
+                        
+                        # If we found constraint mentions, create delta
+                        if constraint_names_in_query:
+                            logger.info(f"Creating fallback delta for constraints: {constraint_names_in_query}")
+                            spec_delta = {
+                                "touched_sections": ["constraints"],
+                                "constraints": {
+                                    "added": [],
+                                    "updated": [{"name": name} for name in constraint_names_in_query],
+                                    "removed": []
+                                },
+                                "goals": {"added": [], "updated": [], "removed": []},
+                                "resolution_changed": False,
+                                "mode_changed": False
+                            }
+                    
+                    # Check for goal-related keywords
+                    if "goal" in query_lower and not constraint_names_in_query:
+                        logger.info("Creating fallback delta for goals")
+                        spec_delta = {
+                            "touched_sections": ["goals"],
+                            "constraints": {"added": [], "updated": [], "removed": []},
+                            "goals": {
+                                "added": ["Updated goal"],
+                                "updated": [],
+                                "removed": []
+                            },
+                            "resolution_changed": False,
+                            "mode_changed": False
+                        }
+                
+                # Log final delta state
+                if spec_delta:
+                    logger.info(f"Final spec_delta - touched_sections: {spec_delta.get('touched_sections')}, constraints updated: {spec_delta.get('constraints', {}).get('updated', [])}")
+                
+                if spec_delta and spec_delta.get("touched_sections"):
+                    touched_sections.extend(spec_delta["touched_sections"])
+            except Exception as e:
+                logger.warning(f"Could not refine ProblemSpec for delta capture: {e}")
+        
+        # Refine WorldModel if ProblemSpec exists and it seems appropriate
+        if guidance_type in ["world_model_guidance"] or (workflow_stage == "setup" and guidance_result.get("workflow_stage") != "setup"):
+            try:
+                from crucible.db.repositories import get_problem_spec
+                problem_spec = get_problem_spec(db, session.project_id)
+                if problem_spec:  # Only refine if ProblemSpec exists
+                    world_model_service = WorldModelService(db)
+                    world_model_result = world_model_service.generate_or_refine_world_model(
+                        project_id=session.project_id,
+                        chat_session_id=chat_session_id,
+                        message_limit=20
+                    )
+                    world_model_delta = world_model_result.get("world_model_delta")
+                    if world_model_delta and world_model_delta.get("touched_sections"):
+                        touched_sections.extend(world_model_delta["touched_sections"])
+            except Exception as e:
+                logger.warning(f"Could not refine WorldModel for delta capture: {e}")
+        
         # Build message metadata
         message_metadata = {
             "agent_name": "Architect",
-            "workflow_stage": result.get("workflow_stage", "setup"),
-            "guidance_type": result.get("guidance_type", "general_guidance"),
+            "workflow_stage": workflow_stage,
+            "guidance_type": guidance_type,
         }
         
+        # Add deltas to metadata if present
+        if spec_delta:
+            message_metadata["spec_delta"] = spec_delta
+        if world_model_delta:
+            message_metadata["world_model_delta"] = world_model_delta
+        if touched_sections:
+            # Remove duplicates and create aggregated summary
+            message_metadata["touched_sections"] = list(set(touched_sections))
+        
         # Add suggested actions to metadata if present
-        if result.get("suggested_actions"):
-            message_metadata["suggested_actions"] = result["suggested_actions"]
+        if guidance_result.get("suggested_actions"):
+            message_metadata["suggested_actions"] = guidance_result["suggested_actions"]
+        
+        result = guidance_result
         
         # Combine guidance message with suggested actions if needed
         content = result.get("guidance_message", "")

@@ -5,6 +5,153 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { messagesApi, chatSessionsApi, problemSpecApi, guidanceApi } from '@/lib/api';
 import { Message, GuidanceResponse } from '@/lib/api';
 
+interface DeltaSummaryProps {
+  metadata: Record<string, any>;
+}
+
+function DeltaSummary({ metadata }: DeltaSummaryProps) {
+  const [showDetails, setShowDetails] = useState(false);
+  
+  const specDelta = metadata.spec_delta;
+  const worldModelDelta = metadata.world_model_delta;
+  
+  // Check if deltas exist and have actual changes
+  const hasSpecDelta = specDelta && (
+    (specDelta.touched_sections && specDelta.touched_sections.length > 0) ||
+    (specDelta.constraints && (
+      (specDelta.constraints.added?.length > 0) ||
+      (specDelta.constraints.updated?.length > 0) ||
+      (specDelta.constraints.removed?.length > 0)
+    )) ||
+    (specDelta.goals && (
+      (specDelta.goals.added?.length > 0) ||
+      (specDelta.goals.removed?.length > 0)
+    )) ||
+    specDelta.resolution_changed ||
+    specDelta.mode_changed
+  );
+  
+  const hasWorldModelDelta = worldModelDelta && (
+    (worldModelDelta.touched_sections && worldModelDelta.touched_sections.length > 0) ||
+    (worldModelDelta.sections && Object.keys(worldModelDelta.sections).length > 0)
+  );
+  
+  if (!hasSpecDelta && !hasWorldModelDelta) {
+    return null;
+  }
+  
+  const summaryParts: string[] = [];
+  
+  // Build spec summary
+  if (hasSpecDelta && specDelta) {
+    const specParts: string[] = [];
+    const constraints = specDelta.constraints || {};
+    const goals = specDelta.goals || {};
+    
+    const addedConstraints = (constraints.added || []).length;
+    const updatedConstraints = (constraints.updated || []).length;
+    const removedConstraints = (constraints.removed || []).length;
+    const addedGoals = (goals.added || []).length;
+    const removedGoals = (goals.removed || []).length;
+    
+    if (addedConstraints > 0) specParts.push(`+${addedConstraints} constraint${addedConstraints > 1 ? 's' : ''}`);
+    if (updatedConstraints > 0) specParts.push(`${updatedConstraints} constraint${updatedConstraints > 1 ? 's' : ''} updated`);
+    if (removedConstraints > 0) specParts.push(`-${removedConstraints} constraint${removedConstraints > 1 ? 's' : ''}`);
+    if (addedGoals > 0) specParts.push(`+${addedGoals} goal${addedGoals > 1 ? 's' : ''}`);
+    if (removedGoals > 0) specParts.push(`-${removedGoals} goal${removedGoals > 1 ? 's' : ''}`);
+    if (specDelta.resolution_changed) specParts.push('resolution updated');
+    if (specDelta.mode_changed) specParts.push('mode updated');
+    
+    if (specParts.length > 0) {
+      summaryParts.push(`Spec update: ${specParts.join(', ')}`);
+    }
+  }
+  
+  // Build world model summary
+  if (hasWorldModelDelta && worldModelDelta) {
+    const modelParts: string[] = [];
+    const sections = worldModelDelta.sections || {};
+    
+    for (const [section, changes] of Object.entries(sections)) {
+      const changeData = changes as { added?: any[]; modified?: any[]; removed?: any[] };
+      const added = (changeData.added || []).length;
+      const modified = (changeData.modified || []).length;
+      const removed = (changeData.removed || []).length;
+      
+      if (added > 0) modelParts.push(`+${added} ${section.slice(0, -1)}${added > 1 ? 's' : ''}`);
+      if (modified > 0) modelParts.push(`${modified} ${section.slice(0, -1)}${modified > 1 ? 's' : ''} modified`);
+      if (removed > 0) modelParts.push(`-${removed} ${section.slice(0, -1)}${removed > 1 ? 's' : ''}`);
+    }
+    
+    if (modelParts.length > 0) {
+      summaryParts.push(`World model update: ${modelParts.join(', ')}`);
+    }
+  }
+  
+  if (summaryParts.length === 0) {
+    return null;
+  }
+  
+  return (
+    <div className="mt-2 pt-2 border-t border-green-200">
+      <div className="text-xs text-green-700">
+        {summaryParts.join('. ')}.
+        <button
+          onClick={() => setShowDetails(!showDetails)}
+          className="ml-2 text-green-600 hover:text-green-800 underline"
+        >
+          {showDetails ? '[Hide Details]' : '[Details]'}
+        </button>
+      </div>
+      {showDetails && (
+        <div className="mt-2 text-xs text-green-600 space-y-1">
+          {specDelta && (
+            <div>
+              <strong>Spec changes:</strong>
+              <ul className="list-disc list-inside ml-2">
+                {specDelta.constraints?.added?.map((c: any, i: number) => (
+                  <li key={i}>Added constraint: {c.name}</li>
+                ))}
+                {specDelta.constraints?.updated?.map((c: any, i: number) => (
+                  <li key={i}>Updated constraint: {c.name}</li>
+                ))}
+                {specDelta.constraints?.removed?.map((c: any, i: number) => (
+                  <li key={i}>Removed constraint: {c.name}</li>
+                ))}
+                {specDelta.goals?.added?.map((g: string, i: number) => (
+                  <li key={i}>Added goal: {g}</li>
+                ))}
+                {specDelta.goals?.removed?.map((g: string, i: number) => (
+                  <li key={i}>Removed goal: {g}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {worldModelDelta && (
+            <div>
+              <strong>World model changes:</strong>
+              <ul className="list-disc list-inside ml-2">
+                {Object.entries(worldModelDelta.sections || {}).map(([section, changes]) => {
+                  const changeData = changes as { added?: any[]; modified?: any[]; removed?: any[] };
+                  return (
+                    <li key={section}>
+                      {section}: {[
+                        ...(changeData.added || []).map((item: any) => `+${item.name || item.id || 'item'}`),
+                        ...(changeData.modified || []).map((item: any) => `~${item.name || item.id || 'item'}`),
+                        ...(changeData.removed || []).map((item: any) => `-${item.name || item.id || 'item'}`)
+                      ].join(', ')}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ChatInterfaceProps {
   projectId: string;
   chatSessionId: string | null;
@@ -180,6 +327,9 @@ export default function ChatInterface({
                     : 'System'}
                 </div>
                 <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.role === 'agent' && msg.message_metadata && (
+                  <DeltaSummary metadata={msg.message_metadata} />
+                )}
                 {msg.created_at && (
                   <div className="text-xs opacity-70 mt-1">
                     {(() => {

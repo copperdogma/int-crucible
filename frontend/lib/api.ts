@@ -120,7 +120,12 @@ async function apiFetch<T>(
 
   if (!response.ok) {
     // Handle 404 as a special case - return null for optional resources
+    // Suppress console errors for expected 404s (e.g., world-model not existing yet)
     if (response.status === 404) {
+      // Only log if it's not an expected 404 (world-model endpoint)
+      if (!endpoint.includes('/world-model')) {
+        console.warn(`Resource not found: ${endpoint}`);
+      }
       throw new Error('NOT_FOUND');
     }
     const error = await response.json().catch(() => ({ detail: response.statusText }));

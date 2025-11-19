@@ -23,7 +23,7 @@ Int Crucible
 | 009      | Implement feedback loop and issue handling        | Medium   | To Do    | /docs/stories/story-009-feedback-and-issues.md          |
 | 010      | Support multiple chats and runs per project       | Medium   | To Do    | /docs/stories/story-010-multi-chat-and-run-history.md   |
 | 011      | Implement native LLM function calling for guidance agent | Medium   | To Do    | /docs/stories/story-011-native-llm-function-calling-for-guidance.md |
-| 012      | Architect-led conversational loop and full interaction logging | High     | To Do    | /docs/stories/story-012-architect-chat-loop-and-logging.md |
+| 012      | Architect-led conversational loop and full interaction logging | High     | Done    | /docs/stories/story-012-architect-chat-loop-and-logging.md |
 | 013      | Spec/world-model deltas and live highlighting     | High     | To Do    | /docs/stories/story-013-spec-deltas-and-highlighting.md |
 | 014      | Streaming architect responses and typing indicators | High     | To Do    | /docs/stories/story-014-streaming-and-typing-indicators.md |
 | 015      | Chat-first project creation and selection         | High     | To Do    | /docs/stories/story-015-chat-first-project-creation.md  |

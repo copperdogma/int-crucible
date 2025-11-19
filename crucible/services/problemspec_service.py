@@ -107,6 +107,9 @@ class ProblemSpecService:
             result = self.agent.execute(task)
             updated_spec = result.get("updated_spec", {})
 
+            # Compute delta before applying updates
+            spec_delta = self._compute_spec_delta(current_spec_dict, updated_spec)
+
             # Apply updates to database (merge with existing, don't overwrite user constraints)
             applied = False
             if updated_spec:
@@ -117,7 +120,8 @@ class ProblemSpecService:
                 "follow_up_questions": result.get("follow_up_questions", []),
                 "reasoning": result.get("reasoning", ""),
                 "ready_to_run": result.get("ready_to_run", False),
-                "applied": applied
+                "applied": applied,
+                "spec_delta": spec_delta
             }
 
         except Exception as e:
@@ -190,6 +194,116 @@ class ProblemSpecService:
         except Exception as e:
             logger.error(f"Error applying spec updates: {e}", exc_info=True)
             return False
+
+    def _compute_spec_delta(
+        self,
+        current_spec: Optional[Dict[str, Any]],
+        updated_spec: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Compute delta between current and updated ProblemSpec.
+
+        Args:
+            current_spec: Current ProblemSpec dict or None
+            updated_spec: Updated ProblemSpec dict from agent
+
+        Returns:
+            Delta structure with:
+                - touched_sections: List of section names that changed
+                - constraints: Dict with added/updated/removed constraint info
+                - goals: Dict with added/updated/removed goal info
+                - resolution_changed: bool
+                - mode_changed: bool
+        """
+        delta = {
+            "touched_sections": [],
+            "constraints": {
+                "added": [],
+                "updated": [],
+                "removed": []
+            },
+            "goals": {
+                "added": [],
+                "updated": [],
+                "removed": []
+            },
+            "resolution_changed": False,
+            "mode_changed": False
+        }
+
+        if not updated_spec:
+            return delta
+
+        # Compare constraints
+        current_constraints = {c.get("name"): c for c in (current_spec.get("constraints", []) if current_spec else [])}
+        updated_constraints = {c.get("name"): c for c in updated_spec.get("constraints", [])}
+
+        # Find added/updated/removed constraints
+        for name, constraint in updated_constraints.items():
+            if name not in current_constraints:
+                delta["constraints"]["added"].append({
+                    "name": name,
+                    "description": constraint.get("description", "")
+                })
+                delta["touched_sections"].append("constraints")
+            else:
+                # Check if constraint was updated (simple comparison)
+                current = current_constraints[name]
+                if (current.get("description") != constraint.get("description") or
+                    current.get("weight") != constraint.get("weight")):
+                    delta["constraints"]["updated"].append({
+                        "name": name,
+                        "description": constraint.get("description", "")
+                    })
+                    delta["touched_sections"].append("constraints")
+
+        for name in current_constraints:
+            if name not in updated_constraints:
+                delta["constraints"]["removed"].append({
+                    "name": name
+                })
+                delta["touched_sections"].append("constraints")
+
+        # Compare goals
+        current_goals = current_spec.get("goals", []) if current_spec else []
+        updated_goals = updated_spec.get("goals", [])
+
+        # Simple comparison: treat goals as a set
+        current_goals_set = set(current_goals)
+        updated_goals_set = set(updated_goals)
+
+        added_goals = updated_goals_set - current_goals_set
+        removed_goals = current_goals_set - updated_goals_set
+
+        if added_goals:
+            delta["goals"]["added"] = list(added_goals)
+            delta["touched_sections"].append("goals")
+        if removed_goals:
+            delta["goals"]["removed"] = list(removed_goals)
+            delta["touched_sections"].append("goals")
+
+        # Check for updated goals (present in both but potentially modified)
+        # Since goals are strings, we can't easily detect "updates" without semantic comparison
+        # For now, we'll only track added/removed
+
+        # Compare resolution
+        current_resolution = current_spec.get("resolution") if current_spec else None
+        updated_resolution = updated_spec.get("resolution")
+        if current_resolution != updated_resolution and updated_resolution is not None:
+            delta["resolution_changed"] = True
+            delta["touched_sections"].append("resolution")
+
+        # Compare mode
+        current_mode = current_spec.get("mode") if current_spec else None
+        updated_mode = updated_spec.get("mode")
+        if current_mode != updated_mode and updated_mode is not None:
+            delta["mode_changed"] = True
+            delta["touched_sections"].append("mode")
+
+        # Remove duplicates from touched_sections
+        delta["touched_sections"] = list(set(delta["touched_sections"]))
+
+        return delta
 
     def get_problem_spec(self, project_id: str) -> Optional[Dict[str, Any]]:
         """

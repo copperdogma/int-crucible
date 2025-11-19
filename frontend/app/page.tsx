@@ -158,7 +158,7 @@ export default function Home() {
               className="w-96 border-l bg-white flex-shrink-0 flex flex-col overflow-hidden" 
             >
               <div className="flex-1 overflow-y-auto overflow-x-hidden">
-                <SpecPanel projectId={selectedProjectId} />
+                <SpecPanel projectId={selectedProjectId} chatSessionId={selectedChatSessionId} />
               </div>
             </div>
           )}

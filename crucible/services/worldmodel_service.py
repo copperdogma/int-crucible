@@ -118,6 +118,13 @@ class WorldModelService:
             updated_model = result.get("updated_model", {})
             changes = result.get("changes", [])
 
+            # Compute structured delta
+            world_model_delta = self._compute_world_model_delta(
+                current_model_dict,
+                updated_model,
+                changes
+            )
+
             # Apply updates to database with provenance tracking
             applied = False
             if updated_model:
@@ -134,7 +141,8 @@ class WorldModelService:
                 "changes": changes,
                 "reasoning": result.get("reasoning", ""),
                 "ready_to_run": result.get("ready_to_run", False),
-                "applied": applied
+                "applied": applied,
+                "world_model_delta": world_model_delta
             }
 
         except Exception as e:
@@ -202,6 +210,121 @@ class WorldModelService:
         except Exception as e:
             logger.error(f"Error applying model updates: {e}", exc_info=True)
             return False
+
+    def _compute_world_model_delta(
+        self,
+        current_model: Optional[Dict[str, Any]],
+        updated_model: Dict[str, Any],
+        changes: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Compute delta between current and updated WorldModel.
+
+        Args:
+            current_model: Current WorldModel dict or None
+            updated_model: Updated WorldModel dict from agent
+            changes: List of change descriptions from agent
+
+        Returns:
+            Delta structure with:
+                - touched_sections: List of section names that changed
+                - sections: Dict mapping section names to change classifications
+        """
+        delta = {
+            "touched_sections": [],
+            "sections": {}
+        }
+
+        if not updated_model:
+            return delta
+
+        # World model sections to check
+        sections = ["actors", "mechanisms", "resources", "assumptions", "constraints", "simplifications"]
+
+        # If we have structured changes from the agent, use those
+        if changes:
+            for change in changes:
+                entity_type = change.get("entity_type", "").lower()
+                change_type = change.get("type", "update").lower()
+                
+                # Map entity types to sections
+                section_map = {
+                    "actor": "actors",
+                    "mechanism": "mechanisms",
+                    "resource": "resources",
+                    "assumption": "assumptions",
+                    "constraint": "constraints",
+                    "simplification": "simplifications"
+                }
+                
+                section = section_map.get(entity_type, entity_type)
+                if section in sections:
+                    if section not in delta["sections"]:
+                        delta["sections"][section] = {
+                            "added": [],
+                            "modified": [],
+                            "removed": []
+                        }
+                    
+                    entity_id = change.get("entity_id", "")
+                    entity_name = change.get("name", entity_id)
+                    
+                    if change_type in ["add", "added", "create"]:
+                        delta["sections"][section]["added"].append({
+                            "id": entity_id,
+                            "name": entity_name
+                        })
+                        if section not in delta["touched_sections"]:
+                            delta["touched_sections"].append(section)
+                    elif change_type in ["remove", "removed", "delete"]:
+                        delta["sections"][section]["removed"].append({
+                            "id": entity_id,
+                            "name": entity_name
+                        })
+                        if section not in delta["touched_sections"]:
+                            delta["touched_sections"].append(section)
+                    else:  # update, modify, etc.
+                        delta["sections"][section]["modified"].append({
+                            "id": entity_id,
+                            "name": entity_name
+                        })
+                        if section not in delta["touched_sections"]:
+                            delta["touched_sections"].append(section)
+        else:
+            # Fallback: compare current vs updated model sections directly
+            current_data = current_model or {}
+            for section in sections:
+                current_items = current_data.get(section, [])
+                updated_items = updated_model.get(section, [])
+                
+                if current_items != updated_items:
+                    # Simple comparison: if lengths differ or items changed
+                    if len(current_items) < len(updated_items):
+                        # Likely additions
+                        delta["sections"][section] = {
+                            "added": [{"name": "items"}],
+                            "modified": [],
+                            "removed": []
+                        }
+                        delta["touched_sections"].append(section)
+                    elif len(current_items) > len(updated_items):
+                        # Likely removals
+                        delta["sections"][section] = {
+                            "added": [],
+                            "modified": [],
+                            "removed": [{"name": "items"}]
+                        }
+                        delta["touched_sections"].append(section)
+                    else:
+                        # Likely modifications
+                        delta["sections"][section] = {
+                            "added": [],
+                            "modified": [{"name": "items"}],
+                            "removed": []
+                        }
+                        delta["touched_sections"].append(section)
+
+        return delta
 
     def update_world_model_manual(
         self,
