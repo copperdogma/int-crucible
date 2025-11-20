@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Story 014: Streaming UI improvements** (2025-01-17)
+  - Fixed highlighting fade behavior: only border color fades, text remains fully readable
+    - Changed `.highlight-recent` and `.highlight-fading` to use `rgba()` opacity on border color only
+    - Removed element-level `opacity` that was fading text unnecessarily
+  - Fixed input field behavior: input remains enabled while agent is replying
+    - Input field only disabled when no chat session exists (removed `isSending` check)
+    - Send button correctly disabled during agent replies (`isGeneratingReply` check)
+    - Users can now type and edit their next message while waiting for agent response
+    - Enter key still prevented from sending while agent is replying
+
 ### Added
 - **Story 013: Spec/World-Model Deltas and Live Highlighting** (Implementation)
   - Backend delta computation:

@@ -166,6 +166,9 @@ export default function ChatInterface({
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isGeneratingReply, setIsGeneratingReply] = useState(false);
+  const [streamingContent, setStreamingContent] = useState<string>('');
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState<{ what: string; delta?: any } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -215,10 +218,23 @@ export default function ChatInterface({
     enabled: !!chatSessionId,
   });
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom when messages change or streaming content updates
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, streamingContent]);
+
+  // Hide streaming message once saved message with delta appears
+  useEffect(() => {
+    if (streamingMessageId && messages.find(m => m.id === streamingMessageId)) {
+      // Saved message has appeared, clear streaming state
+      // The saved message will show the delta summary via DeltaSummary component
+      setTimeout(() => {
+        setStreamingContent('');
+        setUpdatingStatus(null);
+        setStreamingMessageId(null);
+      }, 100);
+    }
+  }, [messages, streamingMessageId]);
 
   // Auto-focus input when chat session is ready
   useEffect(() => {
@@ -244,42 +260,96 @@ export default function ChatInterface({
         console.error('Failed to refine problem spec:', error);
       });
       
-      // Automatically generate Architect reply
+      // Automatically generate Architect reply with streaming
       setIsGeneratingReply(true);
+      setStreamingContent('');
+      setStreamingMessageId(null);
+      
       try {
-        await guidanceApi.generateArchitectReply(chatSessionId);
-        // Refetch messages to show the Architect reply
-        await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+        await guidanceApi.generateArchitectReplyStream(
+          chatSessionId,
+          (chunk: string) => {
+            // Update streaming content as chunks arrive
+            setStreamingContent((prev) => prev + chunk);
+          },
+          async (messageId: string) => {
+            // Streaming completed - refetch messages to get the final message with delta
+            setStreamingMessageId(messageId);
+            setIsGeneratingReply(false);
+            // Invalidate messages first (so spec panel can read deltas)
+            await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+            // Then invalidate spec (which may have been updated based on delta)
+            await queryClient.invalidateQueries({ queryKey: ['problemSpec', projectId] });
+            await queryClient.invalidateQueries({ queryKey: ['worldModel', projectId] });
+            // Note: Streaming state will be cleared by useEffect when saved message appears
+            // The saved message will show the delta summary via DeltaSummary component
+            // Refocus input after Architect reply completes
+            setTimeout(() => {
+              inputRef.current?.focus();
+            }, 100);
+          },
+          async (error: string) => {
+            // Error occurred during streaming
+            console.error('Failed to generate Architect reply:', error);
+            setStreamingContent('');
+            setStreamingMessageId(null);
+            setIsGeneratingReply(false);
+            setUpdatingStatus(null);
+            // Refetch to show any system error messages
+            await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+            // Refocus input
+            setTimeout(() => {
+              inputRef.current?.focus();
+            }, 100);
+          },
+          (what: string) => {
+            // Backend is updating something
+            setUpdatingStatus({ what });
+          },
+          (delta: any, what: string) => {
+            // Backend finished updating
+            setUpdatingStatus({ what, delta });
+          }
+        );
       } catch (error) {
-        console.error('Failed to generate Architect reply:', error);
-        // Error handling is done on the backend - it creates a system message
-        // Just refetch to show any system error messages
-        await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
-      } finally {
+        console.error('Failed to start streaming Architect reply:', error);
         setIsGeneratingReply(false);
-        // Refocus input after Architect reply completes
+        setStreamingContent('');
+        setStreamingMessageId(null);
+        // Fallback: try non-streaming endpoint
+        try {
+          await guidanceApi.generateArchitectReply(chatSessionId);
+          await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+        } catch (fallbackError) {
+          console.error('Fallback also failed:', fallbackError);
+          await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+        }
         setTimeout(() => {
           inputRef.current?.focus();
         }, 100);
       }
       
-      // Refetch problem spec and world model (may have been updated)
-      queryClient.invalidateQueries({ queryKey: ['problemSpec', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['worldModel', projectId] });
+      // Note: Spec and world model queries are invalidated after streaming completes
+      // (in the onDone callback) so they pick up the deltas from messages
     },
   });
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Prevent sending if already sending, no message, or no session
+    // But allow typing even when agent is generating reply
     if (!message.trim() || isSending || !chatSessionId) return;
 
+    const messageToSend = message.trim();
+    setMessage(''); // Clear input immediately so user can type next message
     setIsSending(true);
     try {
-      await sendMessageMutation.mutateAsync(message.trim());
-      setMessage('');
+      await sendMessageMutation.mutateAsync(messageToSend);
     } catch (error) {
       console.error('Failed to send message:', error);
       alert('Failed to send message. Please try again.');
+      // Restore message on error
+      setMessage(messageToSend);
     } finally {
       setIsSending(false);
     }
@@ -298,12 +368,13 @@ export default function ChatInterface({
     <div className="flex-1 flex flex-col h-full">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 ? (
+        {messages.length === 0 && !streamingContent && !isGeneratingReply ? (
           <div className="text-center text-gray-700 mt-8">
             Start a conversation by describing your problem...
           </div>
         ) : (
-          messages.map((msg: Message) => (
+          <>
+            {messages.map((msg: Message) => (
             <div
               key={msg.id}
               className={`flex ${
@@ -359,7 +430,39 @@ export default function ChatInterface({
                 )}
               </div>
             </div>
-          ))
+          ))}
+          {/* Show typing indicator or streaming message (only if not already in saved messages) */}
+          {(isGeneratingReply || streamingContent || (updatingStatus && !messages.find(m => m.id === streamingMessageId && m.message_metadata?.spec_delta))) && (
+            <div className="flex justify-start">
+              <div className="max-w-[80%] rounded-lg px-4 py-2 bg-green-100 text-green-900">
+                <div className="text-sm font-medium mb-1">
+                  {streamingContent ? 'Architect' : 'Architect is thinking...'}
+                </div>
+                {streamingContent ? (
+                  <div className="whitespace-pre-wrap">{streamingContent}</div>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <span className="animate-pulse">●</span>
+                    <span className="animate-pulse delay-75">●</span>
+                    <span className="animate-pulse delay-150">●</span>
+                  </div>
+                )}
+                {/* Show updating status and delta summary */}
+                {updatingStatus && (
+                  <div className="mt-2 pt-2 border-t border-green-200">
+                    {updatingStatus.delta ? (
+                      <DeltaSummary metadata={{ spec_delta: updatingStatus.delta }} />
+                    ) : (
+                      <div className="text-xs text-green-700">
+                        Updating {updatingStatus.what}...
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          </>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -374,7 +477,14 @@ export default function ChatInterface({
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Type your message..."
             className="flex-1 px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-            disabled={isSending || !chatSessionId}
+            disabled={!chatSessionId}
+            onKeyDown={(e) => {
+              // Allow Enter to send, but prevent sending while agent is replying
+              if (e.key === 'Enter' && !e.shiftKey && !isSending && !isGeneratingReply && message.trim() && chatSessionId) {
+                e.preventDefault();
+                handleSend(e);
+              }
+            }}
           />
           <button
             type="submit"

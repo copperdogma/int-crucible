@@ -284,5 +284,74 @@ export const guidanceApi = {
       method: 'POST',
     });
   },
+  generateArchitectReplyStream: async (
+    chatSessionId: string,
+    onChunk: (chunk: string) => void,
+    onDone: (messageId: string) => void,
+    onError: (error: string) => void,
+    onUpdating?: (what: string) => void,
+    onUpdated?: (delta: any, what: string) => void
+  ): Promise<void> => {
+    const url = `${API_BASE_URL}/chat-sessions/${chatSessionId}/architect-reply-stream`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      onError(error.detail || `API error: ${response.statusText}`);
+      return;
+    }
+
+    if (!response.body) {
+      onError('No response body');
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'chunk') {
+                onChunk(data.content);
+              } else if (data.type === 'done') {
+                onDone(data.message_id);
+                return;
+              } else if (data.type === 'error') {
+                onError(data.error);
+                return;
+              } else if (data.type === 'updating' && onUpdating) {
+                onUpdating(data.what);
+              } else if (data.type === 'updated' && onUpdated) {
+                onUpdated(data.delta, data.what);
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE data:', e, line);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Streaming error');
+    } finally {
+      reader.releaseLock();
+    }
+  },
 };
 

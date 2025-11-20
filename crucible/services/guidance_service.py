@@ -276,8 +276,13 @@ class GuidanceService:
         # Analyze user query to determine guidance type
         query_lower = user_query.lower()
         
-        # Check for spec-related queries
-        if any(term in query_lower for term in ["problem", "spec", "constraint", "goal", "requirement"]):
+        # Check for spec-related queries - focus on concrete constraint/goal terms
+        spec_terms = [
+            "problem", "spec", "specification", "constraint", "goal", "requirement",
+            "budget", "deadline", "timeline", "cost", "limit", "maximum", "minimum",
+            "add", "set", "update", "change", "modify", "include", "incorporate"
+        ]
+        if any(term in query_lower for term in spec_terms):
             return "spec_refinement"
         
         # Check for world model queries

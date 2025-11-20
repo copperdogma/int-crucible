@@ -40,7 +40,13 @@ export default function SpecPanel({ projectId, chatSessionId }: SpecPanelProps) 
         ...msg,
         originalIndex
       }))
-      .filter((msg: any) => msg.role === 'agent' && msg.message_metadata?.spec_delta);
+      .filter((msg: any) => msg.role === 'agent' && msg.message_metadata?.spec_delta)
+      .sort((a: any, b: any) => {
+        // Sort by created_at to ensure chronological order
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return aTime - bTime;
+      });
     
     // Process messages in chronological order (oldest to newest)
     // Newest message (last in array) gets highest index (most vibrant)
@@ -256,6 +262,7 @@ export default function SpecPanel({ projectId, chatSessionId }: SpecPanelProps) 
           <ul className="space-y-2 text-sm">
             {problemSpec.constraints.map((constraint, idx) => {
               // Check if this specific constraint was recently changed
+              // Match constraint name exactly (case-sensitive)
               const highlightClass = getHighlightClass(`constraints:${constraint.name}`);
               const baseClasses = highlightClass ? '' : 'border-l-2 border-blue-500';
               return (

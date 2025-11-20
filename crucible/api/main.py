@@ -12,8 +12,10 @@ from typing import Dict, Any, Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+import json
+import asyncio
 
 from crucible.config import get_config
 from crucible.db.session import get_session
@@ -1703,53 +1705,71 @@ async def generate_architect_reply(
                 # Always try fallback if delta is empty and we have a user query
                 if delta_is_empty and user_query:
                     logger.info(f"Delta is empty, attempting fallback for query: {user_query}")
-                    # Fallback: infer delta from user query
-                    query_lower = user_query.lower()
-                    constraint_names_in_query = []
+                    # Generic fallback: match query against actual constraint/goal names in ProblemSpec
+                    from crucible.db.repositories import get_problem_spec
+                    problem_spec = get_problem_spec(db, session.project_id)
                     
-                    # Check for constraint-related keywords
-                    if any(word in query_lower for word in ["constraint", "budget", "cost", "price", "size", "dimension", "maintain", "clean", "safety", "stimulation"]):
-                        # Try to extract constraint names or infer from context
-                        if "budget" in query_lower or "$" in query_lower or "cost" in query_lower or "price" in query_lower:
-                            constraint_names_in_query.append("Budget")
-                        if "size" in query_lower or "dimension" in query_lower or "x" in query_lower or "feet" in query_lower or "ft" in query_lower or "'" in query_lower:
-                            constraint_names_in_query.append("Size")
-                        if "maintain" in query_lower or "clean" in query_lower:
-                            constraint_names_in_query.append("Maintenance")
-                        if "safety" in query_lower:
-                            constraint_names_in_query.append("Safety")
-                        if "stimulation" in query_lower or "stimulate" in query_lower:
-                            constraint_names_in_query.append("Stimulation")
+                    if problem_spec:
+                        query_lower = user_query.lower()
+                        query_words = set(query_lower.split())
+                        matched_constraint_names = []
+                        matched_goals = []
                         
-                        # If we found constraint mentions, create delta
-                        if constraint_names_in_query:
-                            logger.info(f"Creating fallback delta for constraints: {constraint_names_in_query}")
+                        # Match constraints: check if any word from constraint name appears in query
+                        if problem_spec.constraints:
+                            for constraint in problem_spec.constraints:
+                                constraint_name = constraint.get("name", "")
+                                constraint_name_lower = constraint_name.lower()
+                                constraint_words = set(constraint_name_lower.split())
+                                
+                                # Check if any significant word from constraint name is in query
+                                # Skip very common words
+                                common_words = {"the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "at", "by"}
+                                significant_constraint_words = constraint_words - common_words
+                                
+                                if significant_constraint_words and (significant_constraint_words & query_words):
+                                    matched_constraint_names.append(constraint_name)
+                                    logger.info(f"Matched constraint '{constraint_name}' from query")
+                        
+                        # Match goals: check if query mentions "goal" and any goal text appears in query
+                        if "goal" in query_lower and problem_spec.goals:
+                            for goal in problem_spec.goals:
+                                goal_lower = goal.lower()
+                                goal_words = set(goal_lower.split())
+                                significant_goal_words = goal_words - common_words
+                                
+                                # If query has significant overlap with goal text, or just mentions "goal"
+                                if significant_goal_words and (significant_goal_words & query_words):
+                                    matched_goals.append(goal)
+                                    logger.info(f"Matched goal '{goal[:50]}...' from query")
+                        
+                        # Create delta if we found matches
+                        if matched_constraint_names:
+                            logger.info(f"Creating fallback delta for constraints: {matched_constraint_names}")
                             spec_delta = {
                                 "touched_sections": ["constraints"],
                                 "constraints": {
                                     "added": [],
-                                    "updated": [{"name": name} for name in constraint_names_in_query],
+                                    "updated": [{"name": name} for name in matched_constraint_names],
                                     "removed": []
                                 },
                                 "goals": {"added": [], "updated": [], "removed": []},
                                 "resolution_changed": False,
                                 "mode_changed": False
                             }
-                    
-                    # Check for goal-related keywords
-                    if "goal" in query_lower and not constraint_names_in_query:
-                        logger.info("Creating fallback delta for goals")
-                        spec_delta = {
-                            "touched_sections": ["goals"],
-                            "constraints": {"added": [], "updated": [], "removed": []},
-                            "goals": {
-                                "added": ["Updated goal"],
-                                "updated": [],
-                                "removed": []
-                            },
-                            "resolution_changed": False,
-                            "mode_changed": False
-                        }
+                        elif matched_goals:
+                            logger.info(f"Creating fallback delta for goals: {len(matched_goals)} goals")
+                            spec_delta = {
+                                "touched_sections": ["goals"],
+                                "constraints": {"added": [], "updated": [], "removed": []},
+                                "goals": {
+                                    "added": matched_goals,
+                                    "updated": [],
+                                    "removed": []
+                                },
+                                "resolution_changed": False,
+                                "mode_changed": False
+                            }
                 
                 # Log final delta state
                 if spec_delta:
@@ -1785,8 +1805,9 @@ async def generate_architect_reply(
             "guidance_type": guidance_type,
         }
         
-        # Add deltas to metadata if present
-        if spec_delta:
+        # Always save spec_delta if it exists (even if empty)
+        # This ensures frontend can check for deltas and display summaries
+        if spec_delta is not None:
             message_metadata["spec_delta"] = spec_delta
         if world_model_delta:
             message_metadata["world_model_delta"] = world_model_delta
@@ -1859,6 +1880,495 @@ async def generate_architect_reply(
                 status_code=500,
                 detail=f"Error generating Architect reply: {str(e)}"
             )
+
+
+@app.post("/chat-sessions/{chat_session_id}/architect-reply-stream")
+async def generate_architect_reply_stream(
+    chat_session_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Stream an Architect reply after a user message using Server-Sent Events (SSE).
+    
+    This endpoint:
+    - Gets the latest user message from the chat session
+    - Uses the Guidance service to generate an Architect response with streaming
+    - Streams content as it is generated by the LLM
+    - Persists the full reply as a message once streaming completes
+    
+    Args:
+        chat_session_id: Chat session ID
+        db: Database session
+        
+    Returns:
+        StreamingResponse with SSE format:
+        - data: {"type": "chunk", "content": "text chunk"}
+        - data: {"type": "done", "message_id": "..."}
+        - data: {"type": "error", "error": "..."}
+    """
+    def generate_stream():
+        """Generator for SSE streaming (sync because Anthropic stream is sync)."""
+        try:
+            from crucible.db.repositories import get_chat_session, list_messages, create_message as repo_create_message
+            from crucible.db.models import MessageRole
+            from crucible.agents.guidance_agent import GuidanceAgent
+            from kosmos.core.llm import get_provider
+            import os
+            
+            # Get chat session to find project_id
+            session = get_chat_session(db, chat_session_id)
+            if session is None:
+                yield f"data: {json.dumps({'type': 'error', 'error': f'Chat session not found: {chat_session_id}'})}\n\n"
+                return
+            
+            # Get the latest user message to use as context
+            messages = list_messages(db, chat_session_id)
+            user_messages = [m for m in messages if (m.role.value if hasattr(m.role, "value") else str(m.role)) == "user"]
+            latest_user_message = user_messages[-1] if user_messages else None
+            user_query = latest_user_message.content if latest_user_message else None
+            
+            # Get guidance service to build the prompt (reuse existing logic)
+            guidance_service = GuidanceService(db)
+            
+            # Get project state and workflow stage
+            project_state = guidance_service.get_workflow_state(session.project_id)
+            workflow_stage = guidance_service._determine_workflow_stage(project_state)
+            
+            # Get chat context
+            chat_context = []
+            try:
+                messages_list = list_messages(db, chat_session_id)
+                chat_context = [
+                    {
+                        "role": msg.role.value if hasattr(msg.role, "value") else str(msg.role),
+                        "content": msg.content
+                    }
+                    for msg in messages_list[-5:]
+                ]
+            except Exception as e:
+                logger.warning(f"Could not load chat context: {e}")
+            
+            # Build the prompt using guidance agent's logic
+            guidance_agent = GuidanceAgent(tools=guidance_service._create_tools())
+            prompt = guidance_agent._build_tool_based_prompt(
+                user_query=user_query,
+                project_id=session.project_id,
+                chat_context=chat_context,
+                tool_descriptions=guidance_agent._describe_tools(),
+                initial_state=project_state
+            )
+            system_prompt = guidance_agent._get_system_prompt_with_tools()
+            
+            # Get LLM provider and check if it supports streaming
+            llm_provider = get_provider()
+            # Get provider name - check class name or provider_name attribute
+            if hasattr(llm_provider, 'provider_name'):
+                provider_name = llm_provider.provider_name
+            elif hasattr(llm_provider, '__class__'):
+                class_name = llm_provider.__class__.__name__
+                if 'Anthropic' in class_name:
+                    provider_name = 'anthropic'
+                elif 'OpenAI' in class_name:
+                    provider_name = 'openai'
+                else:
+                    provider_name = 'unknown'
+            else:
+                provider_name = 'unknown'
+            
+            # Try to stream using the configured provider
+            full_content = ""
+            try:
+                # Check provider type and use appropriate streaming method
+                if provider_name == 'anthropic':
+                    # Use Anthropic SDK for streaming
+                    from anthropic import Anthropic
+                    api_key = os.environ.get('ANTHROPIC_API_KEY')
+                    if api_key and not api_key.replace('9', ''):  # CLI mode
+                        raise NotImplementedError("CLI mode doesn't support streaming")
+                    
+                    anthropic_client = Anthropic(api_key=api_key)
+                    model = getattr(llm_provider, 'model', 'claude-3-5-sonnet-20241022')
+                    
+                    # Convert chat context to Anthropic message format
+                    anthropic_messages = []
+                    for msg in chat_context[-10:]:  # Last 10 messages for context
+                        role = msg.get("role", "user")
+                        if role == "user":
+                            anthropic_messages.append({"role": "user", "content": msg.get("content", "")})
+                        elif role == "agent":
+                            anthropic_messages.append({"role": "assistant", "content": msg.get("content", "")})
+                    
+                    # Build final messages list
+                    final_messages = anthropic_messages.copy()
+                    if prompt:
+                        final_messages.append({"role": "user", "content": prompt})
+                    
+                    with anthropic_client.messages.stream(
+                        model=model,
+                        max_tokens=2048,
+                        temperature=0.8,
+                        system=system_prompt,
+                        messages=final_messages,
+                    ) as stream:
+                        for text_event in stream.text_stream:
+                            if text_event:
+                                full_content += text_event
+                                chunk_data = json.dumps({'type': 'chunk', 'content': text_event})
+                                yield f"data: {chunk_data}\n\n"
+                                
+                elif provider_name == 'openai':
+                    # Use OpenAI SDK for streaming
+                    from openai import OpenAI
+                    api_key = os.environ.get('OPENAI_API_KEY')
+                    base_url = getattr(llm_provider, 'base_url', None)
+                    model = getattr(llm_provider, 'model', 'gpt-4-turbo')
+                    
+                    openai_client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+                    
+                    # Convert chat context to OpenAI message format
+                    openai_messages = []
+                    if system_prompt:
+                        openai_messages.append({"role": "system", "content": system_prompt})
+                    for msg in chat_context[-10:]:  # Last 10 messages for context
+                        role = msg.get("role", "user")
+                        if role == "user":
+                            openai_messages.append({"role": "user", "content": msg.get("content", "")})
+                        elif role == "agent":
+                            openai_messages.append({"role": "assistant", "content": msg.get("content", "")})
+                    
+                    # Add the current prompt
+                    if prompt:
+                        openai_messages.append({"role": "user", "content": prompt})
+                    
+                    # Stream from OpenAI
+                    stream = openai_client.chat.completions.create(
+                        model=model,
+                        messages=openai_messages,
+                        max_tokens=2048,
+                        temperature=0.8,
+                        stream=True,
+                    )
+                    
+                    for chunk in stream:
+                        if chunk.choices[0].delta.content:
+                            text_chunk = chunk.choices[0].delta.content
+                            full_content += text_chunk
+                            chunk_data = json.dumps({'type': 'chunk', 'content': text_chunk})
+                            yield f"data: {chunk_data}\n\n"
+                else:
+                    # Provider doesn't support streaming or is unknown
+                    raise NotImplementedError(f"Streaming not implemented for provider: {provider_name}")
+                
+                # Streaming completed successfully
+                # Now do refinement logic (similar to non-streaming endpoint)
+                spec_delta = None
+                world_model_delta = None
+                touched_sections = []
+                
+                # Determine guidance type
+                guidance_type = guidance_service._determine_guidance_type(user_query, workflow_stage, project_state)
+                
+                # Refine ProblemSpec if needed (same logic as non-streaming)
+                if guidance_type in ["spec_refinement", "setup_guidance"] or workflow_stage == "setup":
+                    try:
+                        # Send event indicating we're updating the spec
+                        yield f"data: {json.dumps({'type': 'updating', 'what': 'ProblemSpec'})}\n\n"
+                        
+                        from crucible.db.repositories import get_problem_spec
+                        from datetime import datetime
+                        
+                        current_spec = get_problem_spec(db, session.project_id)
+                        should_refine = True
+                        if current_spec and current_spec.updated_at:
+                            time_since_update = (datetime.utcnow() - current_spec.updated_at.replace(tzinfo=None)).total_seconds()
+                            if time_since_update < 2:
+                                should_refine = False
+                        
+                        if should_refine:
+                            spec_service = ProblemSpecService(db)
+                            spec_result = spec_service.refine_problem_spec(
+                                project_id=session.project_id,
+                                chat_session_id=chat_session_id,
+                                message_limit=20
+                            )
+                            spec_delta = spec_result.get("spec_delta")
+                        else:
+                            spec_service = ProblemSpecService(db)
+                            spec_result = spec_service.refine_problem_spec(
+                                project_id=session.project_id,
+                                chat_session_id=chat_session_id,
+                                message_limit=20
+                            )
+                            spec_delta = spec_result.get("spec_delta")
+                        
+                        # Apply fallback logic if delta is empty (same as non-streaming endpoint)
+                        if spec_delta:
+                            delta_is_empty = ((not spec_delta.get("touched_sections") or len(spec_delta.get("touched_sections", [])) == 0) and
+                                            (not spec_delta.get("constraints", {}).get("updated") or len(spec_delta.get("constraints", {}).get("updated", [])) == 0) and
+                                            (not spec_delta.get("constraints", {}).get("added") or len(spec_delta.get("constraints", {}).get("added", [])) == 0) and
+                                            (not spec_delta.get("goals", {}).get("added") or len(spec_delta.get("goals", {}).get("added", [])) == 0) and
+                                            not spec_delta.get("resolution_changed") and
+                                            not spec_delta.get("mode_changed"))
+                        else:
+                            delta_is_empty = True
+                        
+                        # Always try fallback if delta is empty and we have a user query
+                        if delta_is_empty and user_query:
+                            logger.info(f"Delta is empty in streaming, attempting fallback for query: {user_query}")
+                            # Generic fallback: match query against actual constraint/goal names in ProblemSpec
+                            from crucible.db.repositories import get_problem_spec
+                            problem_spec = get_problem_spec(db, session.project_id)
+                            
+                            if problem_spec:
+                                query_lower = user_query.lower()
+                                query_words = set(query_lower.split())
+                                matched_constraint_names = []
+                                matched_goals = []
+                                
+                                # Match constraints: check if any word from constraint name appears in query
+                                if problem_spec.constraints:
+                                    for constraint in problem_spec.constraints:
+                                        constraint_name = constraint.get("name", "")
+                                        constraint_name_lower = constraint_name.lower()
+                                        constraint_words = set(constraint_name_lower.split())
+                                        
+                                        # Check if any significant word from constraint name is in query
+                                        # Skip very common words
+                                        common_words = {"the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "at", "by"}
+                                        significant_constraint_words = constraint_words - common_words
+                                        
+                                        if significant_constraint_words and (significant_constraint_words & query_words):
+                                            matched_constraint_names.append(constraint_name)
+                                            logger.info(f"Matched constraint '{constraint_name}' from query")
+                                
+                                # Match goals: check if query mentions "goal" and any goal text appears in query
+                                if "goal" in query_lower and problem_spec.goals:
+                                    for goal in problem_spec.goals:
+                                        goal_lower = goal.lower()
+                                        goal_words = set(goal_lower.split())
+                                        significant_goal_words = goal_words - common_words
+                                        
+                                        # If query has significant overlap with goal text, or just mentions "goal"
+                                        if significant_goal_words and (significant_goal_words & query_words):
+                                            matched_goals.append(goal)
+                                            logger.info(f"Matched goal '{goal[:50]}...' from query")
+                                
+                                # Create delta if we found matches
+                                if matched_constraint_names:
+                                    logger.info(f"Creating fallback delta for constraints in streaming: {matched_constraint_names}")
+                                    spec_delta = {
+                                        "touched_sections": ["constraints"],
+                                        "constraints": {
+                                            "added": [],
+                                            "updated": [{"name": name} for name in matched_constraint_names],
+                                            "removed": []
+                                        },
+                                        "goals": {"added": [], "updated": [], "removed": []},
+                                        "resolution_changed": False,
+                                        "mode_changed": False
+                                    }
+                                elif matched_goals:
+                                    logger.info(f"Creating fallback delta for goals in streaming: {len(matched_goals)} goals")
+                                    spec_delta = {
+                                        "touched_sections": ["goals"],
+                                        "constraints": {"added": [], "updated": [], "removed": []},
+                                        "goals": {
+                                            "added": matched_goals,
+                                            "updated": [],
+                                            "removed": []
+                                        },
+                                        "resolution_changed": False,
+                                        "mode_changed": False
+                                    }
+                        
+                        if spec_delta:
+                            # Extract touched_sections if present
+                            if spec_delta.get("touched_sections"):
+                                touched_sections.extend(spec_delta["touched_sections"])
+                            # Always send event with delta (even if touched_sections is empty)
+                            # This ensures frontend can display the delta summary and apply highlighting
+                            yield f"data: {json.dumps({'type': 'updated', 'delta': spec_delta, 'what': 'ProblemSpec'})}\n\n"
+                    except Exception as e:
+                        logger.warning(f"Could not refine ProblemSpec: {e}")
+                
+                # Refine WorldModel if needed
+                if guidance_type in ["world_model_guidance"]:
+                    try:
+                        from crucible.db.repositories import get_problem_spec
+                        problem_spec = get_problem_spec(db, session.project_id)
+                        if problem_spec:
+                            world_model_service = WorldModelService(db)
+                            world_model_result = world_model_service.generate_or_refine_world_model(
+                                project_id=session.project_id,
+                                chat_session_id=chat_session_id,
+                                message_limit=20
+                            )
+                            world_model_delta = world_model_result.get("world_model_delta")
+                            if world_model_delta and world_model_delta.get("touched_sections"):
+                                touched_sections.extend(world_model_delta["touched_sections"])
+                    except Exception as e:
+                        logger.warning(f"Could not refine WorldModel: {e}")
+                
+                # Extract suggested actions from content
+                import re
+                numbered = re.findall(r'\d+\.\s+([^\n]+)', full_content)
+                bullets = re.findall(r'[-•]\s+([^\n]+)', full_content)
+                suggested_actions = [s.strip() for s in (numbered[:4] if numbered else bullets[:4])] if (numbered or bullets) else []
+                
+                # Build message metadata
+                message_metadata = {
+                    "agent_name": "Architect",
+                    "workflow_stage": workflow_stage,
+                    "guidance_type": guidance_type,
+                }
+                
+                # Always save spec_delta if it exists (even if empty)
+                # This ensures frontend can check for deltas and display summaries
+                if spec_delta is not None:
+                    message_metadata["spec_delta"] = spec_delta
+                if world_model_delta:
+                    message_metadata["world_model_delta"] = world_model_delta
+                if touched_sections:
+                    message_metadata["touched_sections"] = list(set(touched_sections))
+                if suggested_actions:
+                    message_metadata["suggested_actions"] = suggested_actions
+                
+                # Create and store the Architect message
+                architect_message = repo_create_message(
+                    db,
+                    chat_session_id=chat_session_id,
+                    role=MessageRole.AGENT,
+                    content=full_content,
+                    message_metadata=message_metadata
+                )
+                
+                # Send completion event with message ID
+                yield f"data: {json.dumps({'type': 'done', 'message_id': architect_message.id})}\n\n"
+                
+            except (ImportError, NotImplementedError, AttributeError) as e:
+                # Fallback to non-streaming if streaming not available
+                logger.warning(f"Streaming not available, falling back to non-streaming: {e}")
+                response = llm_provider.generate(
+                    prompt,
+                    system=system_prompt,
+                    temperature=0.8,
+                    max_tokens=2048
+                )
+                full_content = response.content.strip()
+                
+                # Stream the full content as a single chunk
+                yield f"data: {json.dumps({'type': 'chunk', 'content': full_content})}\n\n"
+                
+                # Do refinement and save message (reuse same logic as streaming path)
+                spec_delta = None
+                world_model_delta = None
+                touched_sections = []
+                guidance_type = guidance_service._determine_guidance_type(user_query, workflow_stage, project_state)
+                
+                # Refine ProblemSpec if needed
+                if guidance_type in ["spec_refinement", "setup_guidance"] or workflow_stage == "setup":
+                    try:
+                        from crucible.db.repositories import get_problem_spec
+                        from datetime import datetime
+                        current_spec = get_problem_spec(db, session.project_id)
+                        should_refine = True
+                        if current_spec and current_spec.updated_at:
+                            time_since_update = (datetime.utcnow() - current_spec.updated_at.replace(tzinfo=None)).total_seconds()
+                            if time_since_update < 2:
+                                should_refine = False
+                        if should_refine:
+                            spec_service = ProblemSpecService(db)
+                            spec_result = spec_service.refine_problem_spec(
+                                project_id=session.project_id,
+                                chat_session_id=chat_session_id,
+                                message_limit=20
+                            )
+                            spec_delta = spec_result.get("spec_delta")
+                        else:
+                            spec_service = ProblemSpecService(db)
+                            spec_result = spec_service.refine_problem_spec(
+                                project_id=session.project_id,
+                                chat_session_id=chat_session_id,
+                                message_limit=20
+                            )
+                            spec_delta = spec_result.get("spec_delta")
+                        if spec_delta and spec_delta.get("touched_sections"):
+                            touched_sections.extend(spec_delta["touched_sections"])
+                    except Exception as e:
+                        logger.warning(f"Could not refine ProblemSpec: {e}")
+                
+                # Refine WorldModel if needed
+                if guidance_type in ["world_model_guidance"]:
+                    try:
+                        from crucible.db.repositories import get_problem_spec
+                        problem_spec = get_problem_spec(db, session.project_id)
+                        if problem_spec:
+                            world_model_service = WorldModelService(db)
+                            world_model_result = world_model_service.generate_or_refine_world_model(
+                                project_id=session.project_id,
+                                chat_session_id=chat_session_id,
+                                message_limit=20
+                            )
+                            world_model_delta = world_model_result.get("world_model_delta")
+                            if world_model_delta and world_model_delta.get("touched_sections"):
+                                touched_sections.extend(world_model_delta["touched_sections"])
+                    except Exception as e:
+                        logger.warning(f"Could not refine WorldModel: {e}")
+                
+                # Extract suggested actions
+                import re
+                numbered = re.findall(r'\d+\.\s+([^\n]+)', full_content)
+                bullets = re.findall(r'[-•]\s+([^\n]+)', full_content)
+                suggested_actions = [s.strip() for s in (numbered[:4] if numbered else bullets[:4])] if (numbered or bullets) else []
+                
+                # Build message metadata
+                message_metadata = {
+                    "agent_name": "Architect",
+                    "workflow_stage": workflow_stage,
+                    "guidance_type": guidance_type,
+                }
+                if spec_delta:
+                    message_metadata["spec_delta"] = spec_delta
+                if world_model_delta:
+                    message_metadata["world_model_delta"] = world_model_delta
+                if touched_sections:
+                    message_metadata["touched_sections"] = list(set(touched_sections))
+                if suggested_actions:
+                    message_metadata["suggested_actions"] = suggested_actions
+                
+                # Create and store the Architect message
+                architect_message = repo_create_message(
+                    db,
+                    chat_session_id=chat_session_id,
+                    role=MessageRole.AGENT,
+                    content=full_content,
+                    message_metadata=message_metadata
+                )
+                
+                yield f"data: {json.dumps({'type': 'done', 'message_id': architect_message.id})}\n\n"
+                
+        except Exception as e:
+            logger.error(f"Error in streaming Architect reply: {e}", exc_info=True)
+            # Extract a user-friendly error message
+            error_msg = str(e)
+            if hasattr(e, 'response') and hasattr(e.response, 'json'):
+                try:
+                    error_data = e.response.json()
+                    if isinstance(error_data, dict):
+                        error_msg = error_data.get('error', {}).get('message', error_msg) if isinstance(error_data.get('error'), dict) else error_msg
+                except:
+                    pass
+            yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
 
 
 @app.get("/projects/{project_id}/workflow-state", response_model=WorkflowStateResponse)
