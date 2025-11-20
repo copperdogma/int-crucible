@@ -1,4 +1,4 @@
-# Story: Implement native LLM function calling for guidance agent
+# Story 011: Native LLM function calling for Architect persona (Guidance/Architect)
 
 **Status**: To Do
 
@@ -15,16 +15,16 @@
   - The system should provide intelligent, adaptive guidance that can query the system dynamically.
 
 ## Problem Statement
-Currently, the guidance agent has access to tools conceptually (they're described in prompts), but it cannot actually invoke them. The agent receives tool descriptions in its prompt and can reference them, but there's no mechanism for the LLM to:
+Currently, the Architect/Guidance agent has access to tools conceptually (they're described in prompts), but it cannot actually invoke them. In places we also rely on brittle Python-side keyword detection to decide actions, which is sub-par. There is no mechanism for the LLM to:
 1. Decide which tool to call based on the user's question
 2. Automatically invoke the tool with the correct parameters
 3. Receive tool results and continue reasoning
 4. Make multiple tool calls in a single guidance session
 
-This limits the agent's ability to provide accurate, real-time guidance. For example, if a user asks "What constraints are in my ProblemSpec?", the agent can only guess based on initial context rather than querying the actual ProblemSpec.
+This limits the agent's ability to provide accurate, real-time guidance. For example, if a user asks "What constraints are in my ProblemSpec?", the agent can only guess based on initial context rather than querying the actual ProblemSpec. We want to replace keyword heuristics with native function calling and typed tools.
 
 ## Acceptance Criteria
-- The guidance agent uses native LLM function calling (Claude tool use API or OpenAI functions):
+- The Architect persona (front-of-house; Guidance/Architect agent) uses native LLM function calling (Claude tool use API or OpenAI functions):
   - LLM can decide to call tools based on user queries
   - Tools are automatically invoked with correct parameters
   - Tool results are fed back to the LLM for continued reasoning
@@ -34,6 +34,10 @@ This limits the agent's ability to provide accurate, real-time guidance. For exa
   - Tool schemas are correctly defined (parameters, return types)
   - Tool execution errors are handled gracefully
   - Tool results are formatted appropriately for the LLM
+- Tool-call audit logging (for analysis and provenance):
+  - Each tool call is captured alongside the Architect message in `message_metadata` with at least:
+    - `tool_name`, `arguments` (PII/sensitive fields redacted if needed), `result_summary` (concise), `duration_ms`, `success` flag, and optional `error`.
+  - The chat transcript plus metadata is sufficient to reconstruct the agent’s reasoning steps and tool usage.
 - The agent can:
   - Answer specific questions by querying relevant data (e.g., "What are my constraints?" → calls `get_problem_spec`)
   - Provide accurate guidance based on real-time system state
@@ -45,6 +49,10 @@ This limits the agent's ability to provide accurate, real-time guidance. For exa
 - Performance:
   - Tool calls don't significantly slow down guidance responses
   - Tool results are cached when appropriate to avoid redundant queries
+ - Safety:
+   - Parameter validation and type checking for tool invocations
+   - Max steps/recursion limits to avoid tool call loops
+   - Allow/deny list for callable tools per environment
 
 ## Tasks
 - [ ] Research and select LLM function calling approach:
@@ -69,8 +77,8 @@ This limits the agent's ability to provide accurate, real-time guidance. For exa
   - [ ] Format tool results for LLM
   - [ ] Continue LLM conversation with tool results
   - [ ] Support multi-turn tool calling (agent can call multiple tools)
-- [ ] Update GuidanceAgent to use function calling:
-  - [ ] Register tools with LLM provider using schemas
+- [ ] Update Architect/Guidance agent to use function calling:
+  - [ ] Register tools with LLM provider using schemas (e.g., `get_workflow_state`, `get_problem_spec`, `get_world_model`, `list_runs`, `get_chat_history`)
   - [ ] Handle function call responses from LLM
   - [ ] Execute tools and feed results back
   - [ ] Support iterative tool calling until guidance is complete
@@ -84,6 +92,7 @@ This limits the agent's ability to provide accurate, real-time guidance. For exa
   - [ ] Test multi-turn tool calling
   - [ ] Test error handling (invalid tool calls, tool execution errors)
   - [ ] Test fallback behavior when function calling unavailable
+  - [ ] Test tool-call audit logging (metadata recorded, redactions honored)
 - [ ] Update documentation:
   - [ ] Document tool calling architecture
   - [ ] Document how to add new tools
