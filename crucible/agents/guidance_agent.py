@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional, List, Callable
 
 from kosmos.agents.base import BaseAgent
 from kosmos.core.llm import get_provider
+from crucible.core.tool_calling import ToolCallingExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,20 @@ class GuidanceAgent(BaseAgent):
         self.llm_provider = get_provider()
         self.tools = tools or {}
         
-        # Register tools if provided
+        # Initialize tool calling executor if tools are available
+        self.tool_executor: Optional[ToolCallingExecutor] = None
         if self.tools:
-            logger.info(f"GuidanceAgent initialized with {len(self.tools)} tools: {list(self.tools.keys())}")
+            try:
+                max_iterations = config.get("max_tool_iterations", 10) if config else 10
+                self.tool_executor = ToolCallingExecutor(
+                    llm_provider=self.llm_provider,
+                    tools=self.tools,
+                    max_iterations=max_iterations
+                )
+                logger.info(f"GuidanceAgent initialized with {len(self.tools)} tools: {list(self.tools.keys())}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize tool calling executor: {e}. Falling back to prompt-based tools.")
+                self.tool_executor = None
 
     def execute(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -121,10 +133,110 @@ class GuidanceAgent(BaseAgent):
         initial_state: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Execute guidance using tools for dynamic information gathering.
+        Execute guidance using native LLM function calling for dynamic information gathering.
         
         The agent can call tools to get specific information as needed,
-        making it more efficient and accurate.
+        making it more efficient and accurate. Uses native function calling APIs
+        (Claude tool use or OpenAI functions) when available, falls back to
+        prompt-based approach otherwise.
+        """
+        # Try to use native function calling if executor is available
+        if self.tool_executor is not None:
+            try:
+                # Build user message
+                user_message_parts = []
+                if user_query:
+                    user_message_parts.append(user_query)
+                else:
+                    user_message_parts.append("Provide contextual guidance based on the current project state.")
+                
+                # Add initial context about project state
+                if initial_state:
+                    user_message_parts.append("\n\nInitial Project State:")
+                    user_message_parts.append(f"- Has ProblemSpec: {initial_state.get('has_problem_spec', False)}")
+                    user_message_parts.append(f"- Has WorldModel: {initial_state.get('has_world_model', False)}")
+                    user_message_parts.append(f"- Has Runs: {initial_state.get('has_runs', False)}")
+                    user_message_parts.append(f"- Number of Runs: {initial_state.get('run_count', 0)}")
+                
+                user_message = "\n".join(user_message_parts)
+                
+                # Convert chat context to conversation history format
+                conversation_history = []
+                for msg in chat_context[-10:]:  # Last 10 messages for context
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    conversation_history.append({
+                        "role": role if role != "agent" else "assistant",
+                        "content": content
+                    })
+                
+                # Build system prompt
+                system_prompt = self._get_system_prompt_with_tools()
+                
+                # Execute with tool calling
+                guidance_message, tool_call_audits = self.tool_executor.execute_with_tools(
+                    user_message=user_message,
+                    system_prompt=system_prompt,
+                    max_tokens=2048,
+                    temperature=0.8,
+                    conversation_history=conversation_history
+                )
+                
+                # Get current state for workflow progress
+                current_state = initial_state
+                if "get_workflow_state" in self.tools:
+                    try:
+                        current_state = self.tools["get_workflow_state"](project_id)
+                    except Exception as e:
+                        logger.warning(f"Could not get workflow state via tool: {e}")
+                
+                suggested_actions = self._extract_suggested_actions(guidance_message.strip(), current_state)
+                workflow_progress = self._compute_workflow_progress(current_state)
+                
+                # Include tool call audits in result metadata
+                result = {
+                    "guidance_message": guidance_message.strip(),
+                    "suggested_actions": suggested_actions,
+                    "workflow_progress": workflow_progress,
+                    "tool_call_audits": [
+                        {
+                            "tool_name": audit.tool_name,
+                            "arguments": audit.arguments,
+                            "result_summary": audit.result_summary,
+                            "duration_ms": audit.duration_ms,
+                            "success": audit.success,
+                            "error": audit.error
+                        }
+                        for audit in tool_call_audits
+                    ]
+                }
+                
+                return result
+                
+            except Exception as e:
+                logger.warning(f"Native tool calling failed: {e}. Falling back to prompt-based approach.", exc_info=True)
+                # Fall through to prompt-based approach
+        
+        # Fallback to prompt-based tool descriptions (legacy approach)
+        return self._execute_with_tools_prompt_based(
+            user_query=user_query,
+            project_id=project_id,
+            chat_context=chat_context,
+            initial_state=initial_state
+        )
+    
+    def _execute_with_tools_prompt_based(
+        self,
+        user_query: Optional[str],
+        project_id: str,
+        chat_context: List[Dict[str, Any]],
+        initial_state: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Execute guidance using prompt-based tool descriptions (fallback).
+        
+        This is the legacy approach that describes tools in prompts rather than
+        using native function calling. Used as fallback when tool calling isn't available.
         """
         # Build initial prompt with tool descriptions
         tool_descriptions = self._describe_tools()
@@ -136,10 +248,6 @@ class GuidanceAgent(BaseAgent):
             tool_descriptions=tool_descriptions,
             initial_state=initial_state
         )
-        
-        # For now, we'll do a simple single-pass approach
-        # In a full implementation, we'd support multi-turn tool calling
-        # where the agent can call tools, get results, and continue reasoning
         
         response = self.llm_provider.generate(
             prompt,
@@ -166,7 +274,8 @@ class GuidanceAgent(BaseAgent):
         return {
             "guidance_message": guidance_message,
             "suggested_actions": suggested_actions,
-            "workflow_progress": workflow_progress
+            "workflow_progress": workflow_progress,
+            "tool_call_audits": []  # No tool calls in prompt-based mode
         }
     
     def _execute_with_context(

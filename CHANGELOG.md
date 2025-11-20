@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Story 011: Native LLM Function Calling for Guidance/Architect** (2025-01-17)
+  - Native LLM function calling infrastructure:
+    - `crucible/core/tools.py`: Tool schema generation from Python functions (235 lines)
+      - Automatic schema generation from function signatures with type hints
+      - Extracts parameter descriptions from docstrings
+      - Supports OpenAI and Anthropic tool formats
+      - Handles Optional parameters and defaults
+    - `crucible/core/tool_calling.py`: Multi-turn tool calling executor (762 lines)
+      - `ToolCallingExecutor` class manages tool execution and LLM interaction
+      - Supports OpenAI function calling (primary) and Anthropic tool use (fallback)
+      - Multi-turn tool calling loop (agent can chain multiple tools in sequence)
+      - Tool call validation with allow/deny lists
+      - Max iterations limit to prevent tool call loops
+  - Guidance Agent integration:
+    - Updated `GuidanceAgent` to use `ToolCallingExecutor` for native function calling
+    - Automatically initializes tool executor when tools are provided
+    - Falls back to prompt-based tool descriptions if function calling unavailable
+    - Supports tools: `get_workflow_state`, `get_problem_spec`, `get_world_model`, `list_runs`, `get_chat_history`
+  - Tool call audit logging:
+    - `ToolCallAudit` dataclass captures: `tool_name`, `arguments` (redacted), `result_summary`, `duration_ms`, `success`, `error`
+    - Sensitive argument redaction (password, api_key, secret, token, key fields)
+    - Audit logs stored in `message_metadata["tool_call_audits"]` for provenance tracking
+    - API endpoint `/architect-reply` includes audit logs in response metadata
+  - Comprehensive test suite:
+    - `tests/unit/core/test_tools.py`: Tool schema generation tests (142 lines)
+    - `tests/unit/core/test_tool_calling.py`: Tool execution tests (293 lines)
+    - Tests cover schema generation, tool validation, execution, error handling, audit logging
+  - Documentation:
+    - `docs/tool-calling-architecture.md`: Complete architecture documentation (343 lines)
+    - Includes usage examples, security considerations, how to add new tools
+    - Performance considerations and future enhancements documented
+
 ### Fixed
 - **Story 014: Streaming UI improvements** (2025-01-17)
   - Fixed highlighting fade behavior: only border color fades, text remains fully readable

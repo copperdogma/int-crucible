@@ -1819,6 +1819,10 @@ async def generate_architect_reply(
         if guidance_result.get("suggested_actions"):
             message_metadata["suggested_actions"] = guidance_result["suggested_actions"]
         
+        # Add tool call audits to metadata if present (for provenance and analysis)
+        if guidance_result.get("tool_call_audits"):
+            message_metadata["tool_call_audits"] = guidance_result["tool_call_audits"]
+        
         result = guidance_result
         
         # Combine guidance message with suggested actions if needed
@@ -2232,6 +2236,11 @@ async def generate_architect_reply_stream(
                     message_metadata["touched_sections"] = list(set(touched_sections))
                 if suggested_actions:
                     message_metadata["suggested_actions"] = suggested_actions
+                
+                # Note: tool_call_audits are added when using GuidanceService,
+                # but streaming endpoint doesn't use GuidanceService directly.
+                # Tool call audits would be available if we call guidance_service.provide_guidance()
+                # before streaming. For now, streaming endpoint doesn't capture tool call audits.
                 
                 # Create and store the Architect message
                 architect_message = repo_create_message(
