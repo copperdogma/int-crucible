@@ -13,6 +13,8 @@ from typing import Dict, Any, List, Optional
 from kosmos.agents.base import BaseAgent
 from kosmos.core.llm import get_provider
 
+from crucible.utils.llm_usage import usage_stats_to_dict
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,9 +113,12 @@ class ScenarioGeneratorAgent(BaseAgent):
                     "reasoning": "Failed to parse agent response. Please try again."
                 }
 
+            usage = usage_stats_to_dict(response)
+
             return {
                 "scenarios": result.get("scenarios", []),
-                "reasoning": result.get("reasoning", "")
+                "reasoning": result.get("reasoning", ""),
+                "usage": usage
             }
 
         except Exception as e:

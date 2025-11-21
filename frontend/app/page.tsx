@@ -9,6 +9,7 @@ import RunConfigPanel from '@/components/RunConfigPanel';
 import ResultsView from '@/components/ResultsView';
 import WorkflowProgress from '@/components/WorkflowProgress';
 import ProjectEditModal from '@/components/ProjectEditModal';
+import RunHistoryPanel from '@/components/RunHistoryPanel';
 
 export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -18,6 +19,7 @@ export default function Home() {
   const [showSpecPanel, setShowSpecPanel] = useState(true);
   const [showRunConfig, setShowRunConfig] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [showRunHistory, setShowRunHistory] = useState(false);
   const [showProjectEdit, setShowProjectEdit] = useState(false);
   const queryClient = useQueryClient();
   const specPanelScrollRef = useRef<HTMLDivElement>(null);
@@ -189,6 +191,12 @@ export default function Home() {
             >
               Run Config
             </button>
+            <button
+              onClick={() => setShowRunHistory(true)}
+              className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+            >
+              Run History
+            </button>
             {activeRunId && (
               <button
                 onClick={() => setShowResults(!showResults)}
@@ -262,6 +270,22 @@ export default function Home() {
               onRunCreated={(runId) => {
                 setActiveRunId(runId);
                 setShowRunConfig(false);
+                setShowResults(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {showRunHistory && selectedProjectId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-5xl w-full mx-4 max-h-[85vh] overflow-y-auto">
+            <RunHistoryPanel
+              projectId={selectedProjectId}
+              onClose={() => setShowRunHistory(false)}
+              onSelectRun={(runId) => {
+                setActiveRunId(runId);
+                setShowRunHistory(false);
                 setShowResults(true);
               }}
             />

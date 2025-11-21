@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-11-21] - Story 019: Operational observability and cost dashboards
+
+### Added
+- **Story 019: Operational observability and cost dashboards** (Complete)
+  - Backend metrics and logging data model:
+    - Alembic migration `a3d1c7e53b34_run_observability_fields.py` adds observability columns to `crucible_runs`:
+      - `duration_seconds` (Float, nullable): Total run duration
+      - `candidate_count`, `scenario_count`, `evaluation_count` (Integer, not null, default 0): Entity counts
+      - `metrics` (JSON, nullable): Structured phase timings and resource breakdowns
+      - `llm_usage` (JSON, nullable): Aggregated LLM token usage and cost per phase
+      - `error_summary` (Text, nullable): Human-readable error summary for failed runs
+    - Migration backfills existing rows with default values for counts
+  - RunService instrumentation:
+    - `_persist_run_observability()` method records all observability metrics
+    - `_record_phase()` helper consistently tracks phase timings (design, scenarios, evaluation, ranking)
+    - Phase-level LLM usage aggregation via `crucible/utils/llm_usage.py` utility module
+    - Automatic error summary capture on pipeline failures (truncated to 512 chars)
+    - Resource breakdown tracking (candidate/scenario/evaluation counts, LLM call counts)
+  - API observability surface:
+    - New `GET /projects/{project_id}/runs/summary` endpoint with pagination and status filtering
+    - Returns `RunSummaryListResponse` with observability fields (duration, counts, metrics, llm_usage, error_summary)
+    - `RunResponse` model extended with all observability fields
+    - `_serialize_run()` helper includes new fields in API responses
+  - CLI observability surface:
+    - New `crucible runs` command with comprehensive filtering:
+      - `--project-id` (required): Filter by project
+      - `--status` (repeatable): Filter by run status
+      - `--limit`, `--offset`: Pagination support
+      - `--since-hours`: Time window filtering
+      - `--format json`: Machine-readable JSON output for AI/automation
+    - Rich-formatted table output with status badges, duration, counts, LLM calls, and cost
+    - Error summary displayed for failed runs
+  - Frontend run history view:
+    - New `RunHistoryPanel.tsx` component with:
+      - Table view showing Run ID, status, created_at, duration, counts (C/S/E), LLM calls, cost
+      - Status badges (color-coded: green for completed, red for failed)
+      - Detail view with phase timings, error summary, and links to Results view
+      - Filtering by status and pagination controls
+      - Loading/empty/error states with clear messaging
+    - Integrated into main app page as modal overlay
+    - "Run History" button in project toolbar
+  - LLM usage tracking utility:
+    - `crucible/utils/llm_usage.py` module for extracting and aggregating LLM usage from Kosmos `LLMResponse` objects
+    - `usage_stats_to_dict()` extracts usage stats from responses
+    - `aggregate_usage()` aggregates multiple usage dictionaries into phase and total summaries
+    - Agents (Designer, ScenarioGenerator, Evaluator) return `usage_summary` in execution results
+    - Services propagate usage data up the call stack to RunService
+  - Documentation:
+    - `docs/design.md` updated with observability data contract including sample JSON payloads for `metrics` and `llm_usage`
+    - Story work log updated with implementation details
+  - Comprehensive test coverage:
+    - Unit tests verify RunService observability persistence
+    - Integration tests verify run summary endpoint with filtering and pagination
+    - All 12 tests passing
+
+### Changed
+- `Run` database model extended with 7 new observability fields
+- `RunService.execute_full_pipeline()` now tracks and persists detailed phase timings, resource breakdowns, and LLM usage
+- All agent `execute()` methods now return `usage_summary` from LLM responses
+- All service methods propagate `usage_summary` up the call stack
+- API `RunResponse` model includes all observability fields
+- CLI `crucible runs` command provides both human-readable and machine-readable output
+
+### Fixed
+- Error handling in `RunService` now captures and persists error summaries for failed runs
+- Migration handles SQLite vs PostgreSQL differences (server defaults, column alterations)
+
 ## [2025-11-21] - Story 008: Provenance and candidate lineage
 
 ### Added

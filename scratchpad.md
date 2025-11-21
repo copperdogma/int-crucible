@@ -53,6 +53,8 @@
 - 2025-11-21: User instructed to start Phase 1 execution and continue working without stopping.
 - 2025-11-21: User directed us to spin up the servers and perform QA end-to-end without pausing.
 - 2025-11-21: User invoked `/build-story` for Story 008 (provenance + lineage) and asked us to review/improve its plan before implementation.
+- 2025-11-21: User asked to review and refine Story 019 observability plan before implementation.
+- 2025-11-21: User requested auditing `.cursor/commands/*.md` instructions to ensure they are either generic or tailored to the current Int Crucible architecture.
 
 **Quick Start Assumptions**  
 - [If quick start is used, list assumptions made, e.g., "Assumed minimal UI based on requirements."]

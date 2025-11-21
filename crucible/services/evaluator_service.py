@@ -24,6 +24,7 @@ from crucible.db.repositories import (
     append_candidate_provenance_entry,
 )
 from crucible.core.provenance import build_provenance_entry
+from crucible.utils.llm_usage import aggregate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,8 @@ class EvaluatorService:
                 "P": P,
                 "R": R,
                 "constraint_satisfaction": constraint_satisfaction,
-                "explanation": explanation
+                "explanation": explanation,
+                "usage": result.get("usage")
             }
 
         except Exception as e:
@@ -212,6 +214,9 @@ class EvaluatorService:
 
         # Evaluate each candidate against each scenario
         evaluations_created = []
+        usage_entries: List[Dict[str, Any]] = []
+        attempted_pairs = 0
+        skipped_existing = 0
         for candidate in candidates:
             for scenario in scenarios:
                 scenario_id = scenario.get("id", "unknown")
@@ -219,7 +224,10 @@ class EvaluatorService:
                 # Skip if evaluation already exists
                 if (candidate.id, scenario_id) in existing_keys:
                     logger.debug(f"Skipping existing evaluation: candidate={candidate.id}, scenario={scenario_id}")
+                    skipped_existing += 1
                     continue
+
+                attempted_pairs += 1
 
                 try:
                     result = self.evaluate_candidate_against_scenario(
@@ -229,15 +237,23 @@ class EvaluatorService:
                         project_id=project_id
                     )
                     evaluations_created.append(result["evaluation"])
+                    if result.get("usage"):
+                        usage_entries.append(result["usage"])
                 except Exception as e:
                     logger.error(f"Failed to evaluate candidate {candidate.id} against scenario {scenario_id}: {e}")
                     # Continue with other evaluations
                     continue
 
+        usage_summary = aggregate_usage(usage_entries)
+
         return {
             "evaluations": evaluations_created,
             "count": len(evaluations_created),
             "candidates_evaluated": len(candidates),
-            "scenarios_used": len(scenarios)
+            "scenarios_used": len(scenarios),
+            "usage_summary": usage_summary,
+            "llm_call_count": len(usage_entries),
+            "attempted_pairs": attempted_pairs,
+            "skipped_existing": skipped_existing
         }
 

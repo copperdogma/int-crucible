@@ -9,8 +9,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from typing import Optional
+from typing import Optional, List
 import time
+import json
+from datetime import datetime, timedelta
 
 from crucible.config import get_config
 from crucible.db.session import get_session
@@ -28,7 +30,7 @@ from crucible.db.repositories import (
     create_run,
     list_projects,
 )
-from crucible.db.models import RunMode
+from crucible.db.models import RunMode, Run, RunStatus
 
 app = typer.Typer(
     name="crucible",
@@ -168,6 +170,141 @@ def kosmos_test():
     except Exception as e:
         console.print(f"[red]✗[/red] Error testing Kosmos: {e}")
         raise typer.Exit(1)
+
+
+@app.command()
+def runs(
+    project_id: str = typer.Option(..., "--project-id", "-p", help="Project ID to inspect"),
+    status: Optional[List[str]] = typer.Option(
+        None,
+        "--status",
+        "-s",
+        help="Filter by run status (repeatable: completed, failed, running, ...)",
+    ),
+    limit: int = typer.Option(20, "--limit", "-l", help="Number of runs to display"),
+    offset: int = typer.Option(0, "--offset", help="Pagination offset"),
+    since_hours: Optional[int] = typer.Option(
+        None,
+        "--since-hours",
+        help="Only include runs created within the last N hours",
+    ),
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        "-f",
+        help="Output format: table (default) or json",
+    ),
+):
+    """
+    List recent runs for a project with observability metrics.
+    """
+    fmt = output_format.lower()
+    if fmt not in {"table", "json"}:
+        raise typer.BadParameter("format must be either 'table' or 'json'")
+
+    with get_session() as session:
+        query = session.query(Run).filter(Run.project_id == project_id)
+
+        if status:
+            normalized_statuses = []
+            for s in status:
+                try:
+                    normalized_statuses.append(RunStatus(s))
+                except ValueError:
+                    raise typer.BadParameter(f"Invalid status filter: {s}")
+            if normalized_statuses:
+                query = query.filter(Run.status.in_([st.value for st in normalized_statuses]))
+
+        if since_hours:
+            cutoff = datetime.utcnow() - timedelta(hours=since_hours)
+            query = query.filter(Run.created_at >= cutoff)
+
+        total = query.count()
+        records = (
+            query.order_by(Run.created_at.desc(), Run.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        def _run_to_dict(run: Run) -> dict:
+            llm_total = None
+            if run.llm_usage:
+                llm_total = run.llm_usage.get("total") or {}
+            return {
+                "id": run.id,
+                "project_id": run.project_id,
+                "status": run.status.value if hasattr(run.status, "value") else str(run.status),
+                "mode": run.mode.value if hasattr(run.mode, "value") else str(run.mode),
+                "created_at": run.created_at.isoformat() if run.created_at else None,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+                "duration_seconds": run.duration_seconds,
+                "candidate_count": run.candidate_count,
+                "scenario_count": run.scenario_count,
+                "evaluation_count": run.evaluation_count,
+                "error_summary": run.error_summary,
+                "llm_usage": run.llm_usage,
+                "llm_calls": (llm_total or {}).get("call_count"),
+                "llm_cost_usd": (llm_total or {}).get("cost_usd"),
+            }
+
+        if fmt == "json":
+            payload = {
+                "total": total,
+                "offset": offset,
+                "limit": limit,
+                "runs": [_run_to_dict(run) for run in records],
+            }
+            console.print_json(data=json.dumps(payload, indent=2, default=str))
+            return
+
+        if not records:
+            console.print(f"[yellow]No runs found for project {project_id}[/yellow]")
+            return
+
+        table = Table(title=f"Run History — Project {project_id}")
+        table.add_column("Run ID", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Created", style="white")
+        table.add_column("Duration (s)", justify="right")
+        table.add_column("Counts (C/S/E)", justify="center")
+        table.add_column("LLM Calls", justify="right")
+        table.add_column("Cost ($)", justify="right")
+        table.add_column("Error Summary", style="red")
+
+        for run in records:
+            run_dict = _run_to_dict(run)
+            created_display = run.created_at.strftime("%Y-%m-%d %H:%M") if run.created_at else "-"
+            duration_display = f"{run_dict['duration_seconds']:.1f}" if run_dict["duration_seconds"] else "-"
+            counts_display = (
+                f"{run_dict.get('candidate_count') or 0}/"
+                f"{run_dict.get('scenario_count') or 0}/"
+                f"{run_dict.get('evaluation_count') or 0}"
+            )
+            cost_display = "-"
+            if run_dict.get("llm_cost_usd") is not None:
+                cost_display = f"{run_dict['llm_cost_usd']:.4f}"
+            error_display = "-"
+            if run.error_summary:
+                error_display = (run.error_summary[:60] + "…") if len(run.error_summary) > 60 else run.error_summary
+
+            table.add_row(
+                run.id,
+                run_dict["status"],
+                created_display,
+                duration_display,
+                counts_display,
+                str(run_dict.get("llm_calls") or 0),
+                cost_display,
+                error_display or "-",
+            )
+
+        console.print(table)
+        console.print(
+            f"Showing {len(records)} of {total} runs (offset {offset}). "
+            "Use --offset/--limit for pagination or --format json for automation."
+        )
 
 
 @app.command()

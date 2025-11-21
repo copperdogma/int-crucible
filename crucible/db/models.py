@@ -11,7 +11,7 @@ from datetime import datetime
 
 # Import Kosmos Base to ensure compatibility
 from kosmos.db.models import Base
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text, Float, Integer
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import relationship
 
@@ -264,6 +264,15 @@ class Run(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Float, nullable=True)
+
+    # Aggregated counters + observability payloads
+    candidate_count = Column(Integer, nullable=False, default=0)
+    scenario_count = Column(Integer, nullable=False, default=0)
+    evaluation_count = Column(Integer, nullable=False, default=0)
+    metrics = Column(JSON, nullable=True)
+    llm_usage = Column(JSON, nullable=True)
+    error_summary = Column(Text, nullable=True)
 
     # Relationships
     project = relationship("Project", back_populates="runs")

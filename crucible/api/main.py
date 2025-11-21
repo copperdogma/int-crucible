@@ -11,7 +11,7 @@ from collections.abc import Generator
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -30,7 +30,9 @@ from crucible.services.run_service import RunService
 from crucible.services.guidance_service import GuidanceService
 from crucible.services.run_preflight_service import RunPreflightService
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from crucible.models.run_contracts import RunTriggerSource
+from crucible.db.models import Run, RunStatus
 from crucible.core.provenance import summarize_provenance_log
 
 # Initialize logging
@@ -271,7 +273,25 @@ class RunResponse(BaseModel):
     run_summary_message_id: Optional[str] = None
     status: str
     created_at: Optional[str] = None
+    started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    candidate_count: Optional[int] = None
+    scenario_count: Optional[int] = None
+    evaluation_count: Optional[int] = None
+    metrics: Optional[Dict[str, Any]] = None
+    llm_usage: Optional[Dict[str, Any]] = None
+    error_summary: Optional[str] = None
+
+
+class RunSummaryListResponse(BaseModel):
+    """Paginated response for run history."""
+    runs: List[RunResponse]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: Optional[int] = None
 
 
 class RunPreflightRequest(BaseModel):
@@ -320,7 +340,15 @@ def _serialize_run(run) -> RunResponse:
         run_summary_message_id=run.run_summary_message_id,
         status=_serialize_enum(run.status),
         created_at=_serialize_dt(run.created_at),
+        started_at=_serialize_dt(run.started_at),
         completed_at=_serialize_dt(run.completed_at),
+        duration_seconds=getattr(run, "duration_seconds", None),
+        candidate_count=getattr(run, "candidate_count", None),
+        scenario_count=getattr(run, "scenario_count", None),
+        evaluation_count=getattr(run, "evaluation_count", None),
+        metrics=getattr(run, "metrics", None),
+        llm_usage=getattr(run, "llm_usage", None),
+        error_summary=getattr(run, "error_summary", None),
     )
 
 
@@ -1222,6 +1250,53 @@ async def list_project_runs(
         List of runs
     """
     return await list_runs(project_id=project_id, db=db)
+
+
+@app.get("/projects/{project_id}/runs/summary", response_model=RunSummaryListResponse)
+async def get_project_run_summary(
+    project_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    status: Optional[List[str]] = Query(default=None),
+    db: Session = Depends(get_db),
+) -> RunSummaryListResponse:
+    """
+    Return a paginated summary of recent runs for a project with observability fields.
+    """
+    query = db.query(Run).filter(Run.project_id == project_id)
+
+    if status:
+        normalized_statuses = []
+        for status_value in status:
+            try:
+                normalized_statuses.append(RunStatus(status_value))
+            except ValueError:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid status filter: {status_value}",
+                )
+        if normalized_statuses:
+            query = query.filter(Run.status.in_([s.value for s in normalized_statuses]))
+
+    total = query.count()
+    runs = (
+        query.order_by(Run.created_at.desc(), Run.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    has_more = offset + len(runs) < total
+    next_offset = offset + len(runs) if has_more else None
+
+    return RunSummaryListResponse(
+        runs=[_serialize_run(run) for run in runs],
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=has_more,
+        next_offset=next_offset,
+    )
 
 
 @app.post("/projects/{project_id}/runs/preflight", response_model=RunPreflightResponse)

@@ -9,7 +9,7 @@ Int Crucible
 ## Suggested Implementation Order (Remaining Stories)
 1. DONE:**016 – Run advisor contract and explicit execution control**: Lock down how runs are authorized to avoid hidden/accidental costs before adding more automation and testing.
 2. DONE:**008 – Provenance and candidate lineage**: Ensure every candidate and model change is traceable so debugging and feedback have a solid backbone.
-3. **019 – Operational observability and cost dashboards**: Add run-level metrics and health visibility so both you and AI can see what the pipeline is doing in practice.
+3. DONE:**019 – Operational observability and cost dashboards**: Add run-level metrics and health visibility so both you and AI can see what the pipeline is doing in practice.
 4. **018 – AI-first test pipeline and snapshot-based scenarios**: Build the AI-facing test harness on top of provenance + observability so snapshots and invariants are cheap and reliable.
 5. **010 – Multiple chats and runs per project**: Turn projects into persistent reasoning environments once core runs, provenance, and tests are stable.
 6. **009 – Feedback loop and issue handling**: Layer feedback and partial reruns on top of a well-observed, provenance-rich pipeline.
@@ -39,7 +39,7 @@ Int Crucible
 | 016      | Run advisor contract and explicit execution control | High   | Done    | /docs/stories/story-016-run-advisor-contract.md         |
 | 017      | Candidate ranking explanations in UI              | Medium   | To Do    | /docs/stories/story-017-candidate-ranking-explanations.md |
 | 018      | AI-first test pipeline and snapshot-based scenarios | Medium | To Do    | /docs/stories/story-018-ai-first-test-pipeline.md       |
-| 019      | Operational observability and cost dashboards     | Medium   | To Do    | /docs/stories/story-019-operational-observability-and-cost-dashboards.md |
+| 019      | Operational observability and cost dashboards     | Medium   | Done    | /docs/stories/story-019-operational-observability-and-cost-dashboards.md |
 
 ## Notes
 - Initial stories are derived from the high-level epics in `docs/temp-story-map.md` and aligned with `docs/requirements.md`, `docs/design.md`, and `docs/architecture.md`. Additional stories can be added as the design evolves.

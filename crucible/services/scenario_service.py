@@ -20,6 +20,8 @@ from crucible.db.repositories import (
     get_run,
 )
 
+from crucible.utils.llm_usage import aggregate_usage
+
 logger = logging.getLogger(__name__)
 
 
@@ -108,6 +110,8 @@ class ScenarioService:
             result = self.agent.execute(task)
             scenarios = result.get("scenarios", [])
             reasoning = result.get("reasoning", "")
+            usage_entry = result.get("usage")
+            usage_summary = aggregate_usage([usage_entry]) if usage_entry else None
 
             # Check if scenario suite already exists
             existing_suite = get_scenario_suite(self.session, run_id)
@@ -135,7 +139,8 @@ class ScenarioService:
                 },
                 "scenarios": scenarios,
                 "reasoning": reasoning,
-                "count": len(scenarios)
+                "count": len(scenarios),
+                "usage_summary": usage_summary
             }
 
         except Exception as e:

@@ -15,6 +15,8 @@ from typing import Dict, Any, Optional
 from kosmos.agents.base import BaseAgent
 from kosmos.core.llm import get_provider
 
+from crucible.utils.llm_usage import usage_stats_to_dict
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,6 +122,10 @@ class EvaluatorAgent(BaseAgent):
                 result["constraint_satisfaction"] = {}
             if "explanation" not in result:
                 result["explanation"] = "No explanation provided."
+
+            usage = usage_stats_to_dict(response)
+            if usage:
+                result["usage"] = usage
 
             return result
 

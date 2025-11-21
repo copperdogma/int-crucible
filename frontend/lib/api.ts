@@ -73,7 +73,15 @@ export interface Run {
   run_summary_message_id?: string | null;
   status: string;
   created_at?: string;
+  started_at?: string;
   completed_at?: string;
+  duration_seconds?: number;
+  candidate_count?: number;
+  scenario_count?: number;
+  evaluation_count?: number;
+  metrics?: Record<string, any> | null;
+  llm_usage?: Record<string, any> | null;
+  error_summary?: string | null;
 }
 
 export interface RunPreflightResponse {
@@ -83,6 +91,15 @@ export interface RunPreflightResponse {
   normalized_config: Record<string, any>;
   prerequisites: Record<string, boolean>;
   notes: string[];
+}
+
+export interface RunSummaryPage {
+  runs: Run[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  next_offset?: number | null;
 }
 
 export interface Candidate {
@@ -307,6 +324,30 @@ export const runsApi = {
   list: async (projectId?: string): Promise<Run[]> => {
     const endpoint = projectId ? `/projects/${projectId}/runs` : '/runs';
     return apiFetch<Run[]>(endpoint);
+  },
+  listSummary: async (
+    projectId: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      status?: string[];
+    }
+  ): Promise<RunSummaryPage> => {
+    const searchParams = new URLSearchParams();
+    if (options?.limit !== undefined) {
+      searchParams.set('limit', String(options.limit));
+    }
+    if (options?.offset !== undefined) {
+      searchParams.set('offset', String(options.offset));
+    }
+    if (options?.status) {
+      for (const status of options.status) {
+        searchParams.append('status', status);
+      }
+    }
+    const query = searchParams.toString();
+    const endpoint = `/projects/${projectId}/runs/summary${query ? `?${query}` : ''}`;
+    return apiFetch<RunSummaryPage>(endpoint);
   },
   get: async (runId: string): Promise<Run> => {
     return apiFetch<Run>(`/runs/${runId}`);

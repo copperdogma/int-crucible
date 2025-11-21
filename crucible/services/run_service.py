@@ -26,6 +26,7 @@ from crucible.services.designer_service import DesignerService
 from crucible.services.scenario_service import ScenarioService
 from crucible.services.evaluator_service import EvaluatorService
 from crucible.services.ranker_service import RankerService
+from crucible.utils.llm_usage import aggregate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ class RunService:
             )
 
             duration = time.time() - start_time
+            result["duration_seconds"] = duration
             logger.info(
                 f"[Design Phase] Completed for run {run_id} in {duration:.2f}s: "
                 f"{result['count']} candidates generated"
@@ -143,6 +145,7 @@ class RunService:
             )
 
             duration = time.time() - start_time
+            result["duration_seconds"] = duration
             logger.info(
                 f"[Scenario Phase] Completed for run {run_id} in {duration:.2f}s: "
                 f"{result['count']} scenarios generated"
@@ -256,6 +259,7 @@ class RunService:
             )
 
             duration = time.time() - start_time
+            result["duration_seconds"] = duration
             logger.info(
                 f"[Evaluation Phase] Completed for run {run_id} in {duration:.2f}s: "
                 f"{result['count']} evaluations created for {result['candidates_evaluated']} candidates "
@@ -305,6 +309,7 @@ class RunService:
             )
 
             duration = time.time() - start_time
+            result["duration_seconds"] = duration
             logger.info(
                 f"[Ranking Phase] Completed for run {run_id} in {duration:.2f}s: "
                 f"{result['count']} candidates ranked, {len(result['hard_constraint_violations'])} hard violations"
@@ -437,36 +442,130 @@ class RunService:
             raise ValueError(f"WorldModel not found for project {run.project_id}")
         logger.info(f"WorldModel found for project {run.project_id}: {world_model.id}")
 
+        phase_timings: Dict[str, Dict[str, Any]] = {}
+        resource_breakdown: Dict[str, Dict[str, Any]] = {}
+        phase_usage: Dict[str, Dict[str, Any]] = {}
+        notes: List[str] = [
+            "Counts derive from phase service outputs.",
+            "LLM usage only appears when providers emit token telemetry.",
+        ]
+        candidate_count: Optional[int] = None
+        scenario_count: Optional[int] = None
+        evaluation_count: Optional[int] = None
+        design_scenario_result: Optional[Dict[str, Any]] = None
+        evaluate_rank_result: Optional[Dict[str, Any]] = None
+
+        def _record_phase(
+            phase_name: str,
+            started_at: datetime,
+            duration_seconds: float,
+            usage_summary: Optional[Dict[str, Any]],
+            resources: Dict[str, Any],
+        ) -> None:
+            completed_at = datetime.utcnow()
+            phase_timings[phase_name] = {
+                "started_at": started_at.isoformat(),
+                "completed_at": completed_at.isoformat(),
+                "duration_seconds": duration_seconds,
+            }
+            resource_breakdown[phase_name] = resources
+            if usage_summary:
+                phase_usage[phase_name] = usage_summary
+
         try:
-            # Phase 1: Design + Scenarios
-            logger.info(f"[Phase 1/2] Starting design + scenario phase for run {run_id}")
-            phase1_start = time.time()
-            
-            design_scenario_result = self.execute_design_and_scenario_phase(
+            # Design phase
+            logger.info(f"[Phase] Design starting for run {run_id}")
+            design_start_dt = datetime.utcnow()
+            design_result = self.execute_design_phase(
                 run_id=run_id,
                 num_candidates=num_candidates,
-                num_scenarios=num_scenarios
             )
-            
-            phase1_duration = time.time() - phase1_start
-            logger.info(
-                f"[Phase 1/2] Design + scenario phase completed in {phase1_duration:.2f}s: "
-                f"{design_scenario_result['candidates']['count']} candidates, "
-                f"{design_scenario_result['scenarios']['count']} scenarios"
+            candidate_count = design_result.get("count", candidate_count or 0)
+            design_duration = design_result.get("duration_seconds") or 0.0
+            design_usage = design_result.get("usage_summary")
+            _record_phase(
+                "design",
+                design_start_dt,
+                design_duration,
+                design_usage,
+                {
+                    "requested_candidates": num_candidates,
+                    "candidates_generated": design_result.get("count", 0),
+                    "llm_calls": (design_usage or {}).get("call_count", 0),
+                },
             )
 
-            # Phase 2: Evaluate + Rank
-            logger.info(f"[Phase 2/2] Starting evaluate + rank phase for run {run_id}")
-            phase2_start = time.time()
-            
-            evaluate_rank_result = self.execute_evaluate_and_rank_phase(run_id=run_id)
-            
-            phase2_duration = time.time() - phase2_start
-            logger.info(
-                f"[Phase 2/2] Evaluate + rank phase completed in {phase2_duration:.2f}s: "
-                f"{evaluate_rank_result['evaluations']['count']} evaluations, "
-                f"{evaluate_rank_result['rankings']['count']} candidates ranked"
+            # Scenario phase
+            logger.info(f"[Phase] Scenario generation starting for run {run_id}")
+            scenario_start_dt = datetime.utcnow()
+            scenario_result = self.execute_scenario_phase(
+                run_id=run_id,
+                num_scenarios=num_scenarios,
             )
+            scenario_count = scenario_result.get("count", scenario_count or 0)
+            scenario_duration = scenario_result.get("duration_seconds") or 0.0
+            scenario_usage = scenario_result.get("usage_summary")
+            _record_phase(
+                "scenarios",
+                scenario_start_dt,
+                scenario_duration,
+                scenario_usage,
+                {
+                    "requested_scenarios": num_scenarios,
+                    "scenarios_generated": scenario_result.get("count", 0),
+                    "llm_calls": (scenario_usage or {}).get("call_count", 0),
+                },
+            )
+
+            design_scenario_result = {
+                "candidates": design_result,
+                "scenarios": scenario_result,
+                "status": "completed",
+            }
+
+            # Evaluation phase
+            logger.info(f"[Phase] Evaluation starting for run {run_id}")
+            evaluation_start_dt = datetime.utcnow()
+            evaluation_result = self.execute_evaluation_phase(run_id=run_id)
+            evaluation_count = evaluation_result.get("count", evaluation_count or 0)
+            evaluation_duration = evaluation_result.get("duration_seconds") or 0.0
+            eval_usage = evaluation_result.get("usage_summary")
+            _record_phase(
+                "evaluation",
+                evaluation_start_dt,
+                evaluation_duration,
+                eval_usage,
+                {
+                    "evaluations_created": evaluation_result.get("count", 0),
+                    "candidates_evaluated": evaluation_result.get("candidates_evaluated"),
+                    "scenarios_used": evaluation_result.get("scenarios_used"),
+                    "attempted_pairs": evaluation_result.get("attempted_pairs"),
+                    "skipped_existing": evaluation_result.get("skipped_existing"),
+                    "llm_calls": evaluation_result.get("llm_call_count", 0),
+                },
+            )
+
+            # Ranking phase
+            logger.info(f"[Phase] Ranking starting for run {run_id}")
+            ranking_start_dt = datetime.utcnow()
+            ranking_result = self.execute_ranking_phase(run_id=run_id)
+            ranking_duration = ranking_result.get("duration_seconds") or 0.0
+            _record_phase(
+                "ranking",
+                ranking_start_dt,
+                ranking_duration,
+                None,
+                {
+                    "candidates_ranked": ranking_result.get("count", 0),
+                    "hard_constraint_violations": len(ranking_result.get("hard_constraint_violations", [])),
+                },
+            )
+
+            evaluate_rank_result = {
+                "evaluations": evaluation_result,
+                "rankings": ranking_result,
+                "status": "completed",
+            }
 
             # Mark run as completed
             update_run_status(
@@ -486,8 +585,42 @@ class RunService:
 
             total_duration = time.time() - start_time
             logger.info(
-                f"Full pipeline completed for run {run_id} in {total_duration:.2f}s "
-                f"(phase1: {phase1_duration:.2f}s, phase2: {phase2_duration:.2f}s)"
+                f"Full pipeline completed for run {run_id} in {total_duration:.2f}s"
+            )
+
+            timing_payload = {
+                "total": total_duration,
+                "phase1": (design_duration + scenario_duration),
+                "phase2": (evaluation_duration + ranking_duration),
+                "design": design_duration,
+                "scenarios": scenario_duration,
+                "evaluation": evaluation_duration,
+                "ranking": ranking_duration,
+            }
+
+            metrics_payload: Dict[str, Any] = {
+                "phase_timings": phase_timings,
+                "resource_breakdown": resource_breakdown,
+            }
+            if notes:
+                metrics_payload["notes"] = notes
+
+            llm_usage_payload = None
+            if phase_usage:
+                total_usage = aggregate_usage(list(phase_usage.values()))
+                llm_usage_payload = {"phases": phase_usage}
+                if total_usage:
+                    llm_usage_payload["total"] = total_usage
+
+            self._persist_run_observability(
+                run_id=run_id,
+                candidate_count=candidate_count,
+                scenario_count=scenario_count,
+                evaluation_count=evaluation_count,
+                duration_seconds=total_duration,
+                metrics_payload=metrics_payload,
+                llm_usage_payload=llm_usage_payload,
+                error_summary=None,
             )
 
             return {
@@ -496,11 +629,7 @@ class RunService:
                 "evaluations": evaluate_rank_result["evaluations"],
                 "rankings": evaluate_rank_result["rankings"],
                 "status": "completed",
-                "timing": {
-                    "total": total_duration,
-                    "phase1": phase1_duration,
-                    "phase2": phase2_duration
-                }
+                "timing": timing_payload,
             }
 
         except Exception as e:
@@ -508,11 +637,65 @@ class RunService:
                 f"Error in full pipeline for run {run_id} (project {run.project_id}): {e}",
                 exc_info=True
             )
-            # Only set failed if we haven't already set a status
             current_run = get_run(self.session, run_id)
             if current_run and current_run.status != RunStatus.COMPLETED.value:
                 update_run_status(self.session, run_id, RunStatus.FAILED.value)
+
+            metrics_payload = {
+                "phase_timings": phase_timings,
+                "resource_breakdown": resource_breakdown,
+            }
+            if notes:
+                metrics_payload["notes"] = notes
+
+            llm_usage_payload = None
+            if phase_usage:
+                total_usage = aggregate_usage(list(phase_usage.values()))
+                llm_usage_payload = {"phases": phase_usage}
+                if total_usage:
+                    llm_usage_payload["total"] = total_usage
+
+            self._persist_run_observability(
+                run_id=run_id,
+                candidate_count=candidate_count,
+                scenario_count=scenario_count,
+                evaluation_count=evaluation_count,
+                duration_seconds=time.time() - start_time,
+                metrics_payload=metrics_payload,
+                llm_usage_payload=llm_usage_payload,
+                error_summary=str(e),
+            )
             raise
+
+    def _persist_run_observability(
+        self,
+        run_id: str,
+        candidate_count: Optional[int],
+        scenario_count: Optional[int],
+        evaluation_count: Optional[int],
+        duration_seconds: Optional[float],
+        metrics_payload: Optional[Dict[str, Any]],
+        llm_usage_payload: Optional[Dict[str, Any]],
+        error_summary: Optional[str],
+    ) -> None:
+        """Persist aggregated observability fields onto the Run row."""
+        run = get_run(self.session, run_id)
+        if run is None:
+            return
+
+        if duration_seconds is not None:
+            run.duration_seconds = duration_seconds
+        if candidate_count is not None:
+            run.candidate_count = candidate_count
+        if scenario_count is not None:
+            run.scenario_count = scenario_count
+        if evaluation_count is not None:
+            run.evaluation_count = evaluation_count
+        run.metrics = metrics_payload
+        run.llm_usage = llm_usage_payload
+        run.error_summary = (error_summary[:512] if error_summary else None)
+
+        self.session.commit()
 
     def _post_run_summary_message(
         self,

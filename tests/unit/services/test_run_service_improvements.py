@@ -93,18 +93,27 @@ class TestRunServiceImprovements:
         service = RunService(test_db_session)
         
         # Mock the phase methods to avoid actual execution
-        with patch.object(service, 'execute_design_and_scenario_phase') as mock_design, \
-             patch.object(service, 'execute_evaluate_and_rank_phase') as mock_eval:
+        with patch.object(service, 'execute_design_phase') as mock_design, \
+             patch.object(service, 'execute_scenario_phase') as mock_scenarios, \
+             patch.object(service, 'execute_evaluation_phase') as mock_eval, \
+             patch.object(service, 'execute_ranking_phase') as mock_rank:
             
-            mock_design.return_value = {
-                "candidates": {"count": 2},
-                "scenarios": {"count": 2},
-                "status": "completed"
-            }
+            mock_design.return_value = {"count": 2, "duration_seconds": 0.1}
+            mock_scenarios.return_value = {"count": 2, "duration_seconds": 0.1}
             mock_eval.return_value = {
-                "evaluations": {"count": 4},
-                "rankings": {"count": 2},
-                "status": "completed"
+                "count": 4,
+                "candidates_evaluated": 2,
+                "scenarios_used": 2,
+                "duration_seconds": 0.2,
+                "llm_call_count": 1,
+                "attempted_pairs": 4,
+                "skipped_existing": 0,
+                "usage_summary": {"call_count": 1, "input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
+            }
+            mock_rank.return_value = {
+                "count": 2,
+                "hard_constraint_violations": [],
+                "duration_seconds": 0.05,
             }
             
             result = service.execute_full_pipeline(run.id, num_candidates=2, num_scenarios=2)
@@ -130,18 +139,27 @@ class TestRunServiceImprovements:
         service = RunService(test_db_session)
         
         # Mock the phase methods
-        with patch.object(service, 'execute_design_and_scenario_phase') as mock_design, \
-             patch.object(service, 'execute_evaluate_and_rank_phase') as mock_eval:
+        with patch.object(service, 'execute_design_phase') as mock_design, \
+             patch.object(service, 'execute_scenario_phase') as mock_scenarios, \
+             patch.object(service, 'execute_evaluation_phase') as mock_eval, \
+             patch.object(service, 'execute_ranking_phase') as mock_rank:
             
-            mock_design.return_value = {
-                "candidates": {"count": 2},
-                "scenarios": {"count": 2},
-                "status": "completed"
-            }
+            mock_design.return_value = {"count": 2, "duration_seconds": 0.1}
+            mock_scenarios.return_value = {"count": 2, "duration_seconds": 0.1}
             mock_eval.return_value = {
-                "evaluations": {"count": 4},
-                "rankings": {"count": 2},
-                "status": "completed"
+                "count": 4,
+                "candidates_evaluated": 2,
+                "scenarios_used": 2,
+                "duration_seconds": 0.2,
+                "llm_call_count": 1,
+                "attempted_pairs": 4,
+                "skipped_existing": 0,
+                "usage_summary": {"call_count": 1, "input_tokens": 50, "output_tokens": 25, "total_tokens": 75},
+            }
+            mock_rank.return_value = {
+                "count": 2,
+                "hard_constraint_violations": [],
+                "duration_seconds": 0.05,
             }
             
             service.execute_full_pipeline(run.id, num_candidates=2, num_scenarios=2)
@@ -167,8 +185,8 @@ class TestRunServiceImprovements:
         run = create_run(test_db_session, project.id, mode="full_search")
         service = RunService(test_db_session)
         
-        # Mock the phase methods to raise an error
-        with patch.object(service, 'execute_design_and_scenario_phase') as mock_design:
+        # Mock the design phase to raise an error
+        with patch.object(service, 'execute_design_phase') as mock_design:
             mock_design.side_effect = Exception("Test error")
             
             with pytest.raises(Exception):
@@ -203,7 +221,7 @@ class TestRunServiceImprovements:
         service = RunService(test_db_session)
         
         # Mock to raise error
-        with patch.object(service, 'execute_design_and_scenario_phase') as mock_design:
+        with patch.object(service, 'execute_design_phase') as mock_design:
             mock_design.side_effect = Exception("Test error")
             
             with pytest.raises(Exception):
@@ -230,18 +248,27 @@ class TestRunServiceImprovements:
         service = RunService(test_db_session)
         
         # Mock the phase methods
-        with patch.object(service, 'execute_design_and_scenario_phase') as mock_design, \
-             patch.object(service, 'execute_evaluate_and_rank_phase') as mock_eval:
+        with patch.object(service, 'execute_design_phase') as mock_design, \
+             patch.object(service, 'execute_scenario_phase') as mock_scenarios, \
+             patch.object(service, 'execute_evaluation_phase') as mock_eval, \
+             patch.object(service, 'execute_ranking_phase') as mock_rank:
             
-            mock_design.return_value = {
-                "candidates": {"count": 2},
-                "scenarios": {"count": 2},
-                "status": "completed"
-            }
+            mock_design.return_value = {"count": 2, "duration_seconds": 0.1}
+            mock_scenarios.return_value = {"count": 2, "duration_seconds": 0.1}
             mock_eval.return_value = {
-                "evaluations": {"count": 4},
-                "rankings": {"count": 2},
-                "status": "completed"
+                "count": 4,
+                "candidates_evaluated": 2,
+                "scenarios_used": 2,
+                "duration_seconds": 0.2,
+                "llm_call_count": 1,
+                "attempted_pairs": 4,
+                "skipped_existing": 0,
+                "usage_summary": {"call_count": 1, "input_tokens": 40, "output_tokens": 20, "total_tokens": 60},
+            }
+            mock_rank.return_value = {
+                "count": 2,
+                "hard_constraint_violations": [],
+                "duration_seconds": 0.05,
             }
             
             result = service.execute_full_pipeline(run.id, num_candidates=2, num_scenarios=2)
@@ -250,6 +277,8 @@ class TestRunServiceImprovements:
             assert "total" in result["timing"]
             assert "phase1" in result["timing"]
             assert "phase2" in result["timing"]
+            assert "design" in result["timing"]
+            assert "evaluation" in result["timing"]
             assert result["timing"]["total"] > 0
             assert result["timing"]["phase1"] >= 0
             assert result["timing"]["phase2"] >= 0
@@ -263,22 +292,32 @@ class TestRunServiceImprovements:
         run = create_run(test_db_session, project.id, mode="full_search")
         service = RunService(test_db_session)
 
-        with patch.object(service, 'execute_design_and_scenario_phase') as mock_design, \
-             patch.object(service, 'execute_evaluate_and_rank_phase') as mock_eval, \
+        with patch.object(service, 'execute_design_phase') as mock_design, \
+             patch.object(service, 'execute_scenario_phase') as mock_scenarios, \
+             patch.object(service, 'execute_evaluation_phase') as mock_eval, \
+             patch.object(service, 'execute_ranking_phase') as mock_rank, \
              patch('crucible.services.run_service.list_chat_sessions') as mock_list_chat_sessions, \
              patch('crucible.services.run_service.create_message') as mock_create_message:
 
-            mock_design.return_value = {
-                "candidates": {"count": 2},
-                "scenarios": {"count": 2},
-                "status": "completed",
-            }
+            mock_design.return_value = {"count": 2, "duration_seconds": 0.1}
+            mock_scenarios.return_value = {"count": 2, "duration_seconds": 0.1}
             mock_eval.return_value = {
-                "evaluations": {"count": 4},
-                "rankings": {"count": 2, "ranked_candidates": [
+                "count": 4,
+                "candidates_evaluated": 2,
+                "scenarios_used": 2,
+                "duration_seconds": 0.2,
+                "llm_call_count": 1,
+                "attempted_pairs": 4,
+                "skipped_existing": 0,
+                "usage_summary": {"call_count": 1, "input_tokens": 40, "output_tokens": 20, "total_tokens": 60},
+            }
+            mock_rank.return_value = {
+                "count": 2,
+                "hard_constraint_violations": [],
+                "duration_seconds": 0.05,
+                "ranked_candidates": [
                     {"id": "cand-1", "label": "Candidate 1", "I": 1.23},
-                ]},
-                "status": "completed",
+                ],
             }
             mock_list_chat_sessions.return_value = [MagicMock(id="chat-1")]
             mock_create_message.return_value = MagicMock(id="msg-123")

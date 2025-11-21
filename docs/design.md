@@ -179,6 +179,28 @@ MVP technology choices (subject to refinement before implementation):
 
 ---
 
+### Feature: Operational Observability & Cost Tracking
+
+**Related Requirement**: See “Fundamental Principles – Resource awareness” and Story 019.
+
+- **Metrics model**
+  - `crucible_runs` now persists `duration_seconds`, `{candidate,scenario,evaluation}_count`, a structured `metrics` JSON (`phase_timings`, `resource_breakdown`, `notes`), `llm_usage` JSON (`phases`, `total` aggregated tokens/cost/call counts), and a human-readable `error_summary`.
+  - `RunService.execute_full_pipeline` records per-phase timings, resource counters, and LLM usage summaries (via Kosmos UsageStats) even when runs fail, so history surfaces partial data for troubleshooting.
+
+- **API / CLI surfaces**
+  - `GET /projects/{id}/runs/summary` returns a paginated page (`runs`, `total`, `has_more`) that is intentionally AI-friendly (deterministic field names, optional status filters, limit/offset controls).
+  - `crucible runs --project-id ...` lists recent runs with status, counts, durations, token/cost data, and supports `--status`, `--since-hours`, pagination, and `--format json` for automation.
+
+- **Frontend Run History**
+  - Chat UI header exposes a “Run History” modal (`RunHistoryPanel`) showing tabular history (status badges, counts, LLM usage) and a detail pane with phase timings + error summary.
+  - Selecting a run deep-links into the Results overlay, enabling quick pivots from observability to deep dive views.
+
+- **Usage notes**
+  - Metrics rely on providers emitting UsageStats; when absent, UI labels entries as unavailable.
+  - All surfaces emphasize the `I = P/R` framing by pairing outcome counts with resource usage so humans and AI agents can reason about regressions or runaway costs.
+
+---
+
 ### Feature: Feedback Loop on Model, Constraints, and Evaluations
 
 **Related Requirement**: See “Provenance tracker” and Future roadmap in `requirements.md` (feedback & self-improvement are post-MVP, but a minimal feedback loop is highly desirable).  

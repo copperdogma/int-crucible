@@ -22,6 +22,7 @@ from crucible.db.repositories import (
 )
 from crucible.db.models import CandidateOrigin, CandidateStatus
 from crucible.core.provenance import build_provenance_entry
+from crucible.utils.llm_usage import aggregate_usage
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,8 @@ class DesignerService:
             result = self.agent.execute(task)
             candidate_proposals = result.get("candidates", [])
             reasoning = result.get("reasoning", "")
+            usage_entry = result.get("usage")
+            usage_summary = aggregate_usage([usage_entry]) if usage_entry else None
 
             # Create candidates in database with provenance
             created_candidates = []
@@ -168,7 +171,8 @@ class DesignerService:
             return {
                 "candidates": created_candidates,
                 "reasoning": reasoning,
-                "count": len(created_candidates)
+                "count": len(created_candidates),
+                "usage_summary": usage_summary
             }
 
         except Exception as e:

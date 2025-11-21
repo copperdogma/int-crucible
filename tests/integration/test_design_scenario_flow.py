@@ -847,6 +847,67 @@ class TestDesignScenarioAPIEndpoints:
         
         app.dependency_overrides.clear()
 
+
+class TestRunSummaryEndpoint:
+    """Tests for the run summary observability endpoint."""
+
+    def test_run_summary_endpoint_returns_runs(
+        self,
+        test_client,
+        integration_db_session,
+        sample_project_with_spec_and_model,
+    ):
+        project, _, _ = sample_project_with_spec_and_model
+        run = create_run(
+            integration_db_session,
+            project_id=project.id,
+            mode="full_search",
+            config={"num_candidates": 2},
+        )
+        run.candidate_count = 2
+        run.scenario_count = 3
+        run.evaluation_count = 6
+        run.duration_seconds = 15.5
+        run.metrics = {"phase_timings": {"design": {"duration_seconds": 5.0}}}
+        run.llm_usage = {"total": {"call_count": 2, "cost_usd": 0.0025}}
+        integration_db_session.commit()
+
+        response = test_client.get(f"/projects/{project.id}/runs/summary")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total"] >= 1
+        assert payload["runs"][0]["id"] == run.id
+        assert payload["runs"][0]["candidate_count"] == 2
+        assert payload["runs"][0]["duration_seconds"] == 15.5
+
+    def test_run_summary_endpoint_filters_status(
+        self,
+        test_client,
+        integration_db_session,
+        sample_project_with_spec_and_model,
+    ):
+        project, _, _ = sample_project_with_spec_and_model
+        completed_run = create_run(
+            integration_db_session,
+            project_id=project.id,
+            mode="full_search",
+        )
+        failed_run = create_run(
+            integration_db_session,
+            project_id=project.id,
+            mode="full_search",
+        )
+        completed_run.status = RunStatus.COMPLETED.value
+        failed_run.status = RunStatus.FAILED.value
+        integration_db_session.commit()
+
+        response = test_client.get(
+            f"/projects/{project.id}/runs/summary", params={"status": "completed"}
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total"] >= 1
+        assert all(run["status"] == RunStatus.COMPLETED.value for run in payload["runs"])
     @patch('crucible.agents.designer_agent.get_provider')
     def test_candidate_detail_endpoint_returns_provenance(
         self,
