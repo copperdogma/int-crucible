@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-11-21] - Story 008: Provenance and candidate lineage
+
+### Added
+- **Story 008: Implement provenance and candidate lineage** (Complete)
+  - Canonical provenance tracking system:
+    - New `crucible/core/provenance.py` module with shared helpers for building normalized provenance entries
+    - `build_provenance_entry()` function ensures consistent event structure across all agents
+    - `summarize_provenance_log()` function generates lightweight summaries for UI/API listings
+    - Standardized entry format: type, timestamp, actor, source, description, reference_ids, metadata
+  - Database schema extensions:
+    - Added `provenance_log` JSON column to `crucible_problem_specs` table (Alembic migration `6a9abf0029cd`)
+    - Candidate model already had `provenance_log` and `parent_ids` (now fully utilized)
+    - WorldModel provenance already existed in `model_data.provenance` (now consistently used)
+    - Repository helpers updated to append provenance entries atomically
+  - Service layer provenance instrumentation:
+    - **DesignerService**: Logs "design" events when generating candidates with run context
+    - **EvaluatorService**: Logs "eval_result" events after each candidate-scenario evaluation
+    - **RankerService**: Logs "ranking" events when computing I-scores and updating candidate status
+    - **ProblemSpecService**: Logs "spec_update" events when refining ProblemSpec with chat context
+    - All services use centralized helpers to ensure schema consistency
+  - API endpoints for provenance access:
+    - Enhanced `GET /runs/{run_id}/candidates` to include `parent_ids` and `provenance_summary` (last event + count)
+    - New `GET /runs/{run_id}/candidates/{candidate_id}` endpoint returns full candidate detail:
+      - Complete provenance log with all events
+      - Parent candidate summaries (id, description, status)
+      - All evaluations with scenario context
+      - Full scores and constraint breakdown
+    - New `GET /projects/{project_id}/provenance` endpoint aggregates provenance across:
+      - ProblemSpec provenance log entries
+      - WorldModel provenance entries
+      - All candidate provenance logs with lineage relationships
+  - Frontend lineage visualization:
+    - **ResultsView.tsx** enhanced with candidate detail modal:
+      - Shows parent candidate chips with status indicators
+      - Displays chronological provenance timeline (newest first)
+      - Renders last event summary in candidate list cards
+      - Fetches full detail on-demand when candidate is selected
+      - Displays evaluation summaries with scenario context
+    - New API client methods in `frontend/lib/api.ts`:
+      - `runsApi.getCandidateDetail(runId, candidateId)` for full lineage data
+      - `projectsApi.getProvenance(projectId)` for project-wide provenance (future use)
+  - Documentation and schema updates:
+    - `docs/candidate-scenario-schema.md` updated with canonical provenance entry structure
+    - `docs/world-model-schema.md` documents provenance array format
+    - `docs/stories/story-008-provenance-and-lineage.md` updated with implementation details and work log
+  - Comprehensive test coverage:
+    - Integration tests verify candidate detail endpoint returns provenance and parent summaries
+    - Integration tests verify project provenance endpoint aggregates all logs correctly
+    - Unit tests verify ProblemSpecService appends provenance entries correctly
+    - All existing tests updated to account for provenance fields
+
+### Changed
+- `CandidateResponse` model now includes `parent_ids` and optional `provenance_summary` for list views
+- All candidate-generating services now emit provenance events automatically (no manual bookkeeping)
+- ProblemSpec updates now capture provenance with chat session context and delta information
+- Candidate list API responses include lightweight provenance summaries for quick inspection
+- Frontend ResultsView now fetches detailed lineage data on-demand for selected candidates
+
+### Fixed
+- SQLite migration compatibility: `ALTER COLUMN ... SET NOT NULL` skipped for SQLite (column added with default)
+- Provenance log entries now consistently use UTC timestamps via centralized helper
+- Parent relationship tracking now properly initialized (empty array instead of None)
+
 ## [2025-11-21] - Story 016: Run advisor contract and explicit execution control
 
 ### Added

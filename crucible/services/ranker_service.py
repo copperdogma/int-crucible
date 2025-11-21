@@ -16,8 +16,10 @@ from crucible.db.repositories import (
     list_evaluations,
     update_candidate,
     get_run,
+    append_candidate_provenance_entry,
 )
 from crucible.db.models import CandidateStatus
+from crucible.core.provenance import build_provenance_entry
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +220,21 @@ class RankerService:
                 candidate_id=candidate_id,
                 status=status.value
             )
+
+            i_score_display = f"{I_score:.2f}" if isinstance(I_score, (int, float)) else str(I_score)
+            provenance_entry = build_provenance_entry(
+                event_type="ranking",
+                actor="system",
+                source=f"run:{run_id}",
+                description=f"Ranker computed I={i_score_display} and set status to {status.value}",
+                reference_ids=[run_id, candidate_id],
+                metadata={
+                    "scores": scores,
+                    "has_hard_violation": has_hard_violation,
+                    "evaluation_count": len(candidate_evaluations),
+                },
+            )
+            append_candidate_provenance_entry(self.session, candidate_id, provenance_entry)
 
             # Build ranked candidate entry
             ranked_candidates.append({

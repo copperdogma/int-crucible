@@ -217,6 +217,25 @@ def update_problem_spec(
     return problem_spec
 
 
+def append_problem_spec_provenance_entry(
+    session: Session,
+    project_id: str,
+    entry: dict,
+) -> ProblemSpec | None:
+    """Append a provenance entry to the project's ProblemSpec."""
+    problem_spec = get_problem_spec(session, project_id)
+    if problem_spec is None:
+        return None
+
+    log = list(problem_spec.provenance_log or [])
+    log.append(entry)
+    problem_spec.provenance_log = log
+    problem_spec.updated_at = datetime.utcnow()
+    session.commit()
+    session.refresh(problem_spec)
+    return problem_spec
+
+
 # WorldModel operations
 def create_world_model(
     session: Session,
@@ -408,6 +427,26 @@ def update_candidate(
         candidate.provenance_log = provenance_log
 
     candidate.updated_at = datetime.utcnow()
+    session.commit()
+    session.refresh(candidate)
+    return candidate
+
+
+def append_candidate_provenance_entry(
+    session: Session,
+    candidate_id: str,
+    entry: dict,
+) -> Candidate | None:
+    """Append a provenance entry to a candidate."""
+    candidate = get_candidate(session, candidate_id)
+    if candidate is None:
+        return None
+
+    log = list(candidate.provenance_log or [])
+    log.append(entry)
+    candidate.provenance_log = log
+    candidate.updated_at = datetime.utcnow()
+
     session.commit()
     session.refresh(candidate)
     return candidate

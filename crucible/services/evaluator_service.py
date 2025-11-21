@@ -21,7 +21,9 @@ from crucible.db.repositories import (
     create_evaluation,
     list_evaluations,
     get_run,
+    append_candidate_provenance_entry,
 )
+from crucible.core.provenance import build_provenance_entry
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,20 @@ class EvaluatorService:
                 constraint_satisfaction=constraint_satisfaction,
                 explanation=explanation
             )
+
+            provenance_entry = build_provenance_entry(
+                event_type="eval_result",
+                actor="agent",
+                source=f"scenario:{scenario.get('id', 'unknown')}",
+                description=f"Evaluated against scenario {scenario.get('name') or scenario.get('id')}",
+                reference_ids=[evaluation.id, run_id, scenario.get("id", "unknown")],
+                metadata={
+                    "P": P,
+                    "R": R,
+                    "constraint_satisfaction": constraint_satisfaction,
+                },
+            )
+            append_candidate_provenance_entry(self.session, candidate_id, provenance_entry)
 
             return {
                 "evaluation": {

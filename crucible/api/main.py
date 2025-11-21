@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import json
 import asyncio
 
@@ -31,6 +31,7 @@ from crucible.services.guidance_service import GuidanceService
 from crucible.services.run_preflight_service import RunPreflightService
 from sqlalchemy.orm import Session
 from crucible.models.run_contracts import RunTriggerSource
+from crucible.core.provenance import summarize_provenance_log
 
 # Initialize logging
 logging.basicConfig(
@@ -291,15 +292,19 @@ class RunPreflightResponse(BaseModel):
     notes: List[str]
 
 
+def _serialize_enum(value):
+    """Convert Enum-like values to primitive types."""
+    if hasattr(value, "value"):
+        return value.value
+    return value
+
+
+def _serialize_dt(value):
+    return value.isoformat() if value else None
+
+
 def _serialize_run(run) -> RunResponse:
     """Convert SQLAlchemy Run model to RunResponse."""
-    def _serialize_enum(value):
-        if hasattr(value, "value"):
-            return value.value
-        return value
-
-    def _serialize_dt(value):
-        return value.isoformat() if value else None
 
     return RunResponse(
         id=run.id,
@@ -319,16 +324,112 @@ def _serialize_run(run) -> RunResponse:
     )
 
 
+class ProvenanceEventSummary(BaseModel):
+    """Summary of the latest provenance event for quick display."""
+    type: Optional[str] = None
+    timestamp: Optional[str] = None
+    actor: Optional[str] = None
+    source: Optional[str] = None
+    description: Optional[str] = None
+
+
+class CandidateProvenanceSummary(BaseModel):
+    """Summary information about a candidate's provenance log."""
+    event_count: int
+    last_event: Optional[ProvenanceEventSummary] = None
+
+
+class CandidateParentSummary(BaseModel):
+    """Basic info about a parent candidate."""
+    id: str
+    mechanism_description: Optional[str] = None
+    status: Optional[str] = None
+
+
+class CandidateProvenanceEntry(BaseModel):
+    """Full provenance entry information."""
+    type: str
+    timestamp: str
+    actor: str
+    source: Optional[str] = None
+    description: Optional[str] = None
+    reference_ids: Optional[List[str]] = None
+    metadata: Optional[dict] = None
+
+
+class EvaluationSummary(BaseModel):
+    """Summary of an evaluation for candidate detail view."""
+    id: str
+    scenario_id: str
+    P: Optional[dict] = None
+    R: Optional[dict] = None
+    constraint_satisfaction: Optional[dict] = None
+    explanation: Optional[str] = None
+
+
+class CandidateDetailResponse(BaseModel):
+    """Detailed candidate response with provenance and evaluations."""
+    id: str
+    run_id: str
+    project_id: str
+    origin: str
+    status: Optional[str] = None
+    mechanism_description: str
+    predicted_effects: Optional[dict] = None
+    scores: Optional[dict] = None
+    constraint_flags: Optional[List[str]] = None
+    parent_ids: List[str] = Field(default_factory=list)
+    parent_summaries: List[CandidateParentSummary] = Field(default_factory=list)
+    provenance_log: List[CandidateProvenanceEntry] = Field(default_factory=list)
+    evaluations: List[EvaluationSummary] = Field(default_factory=list)
+
+
 class CandidateResponse(BaseModel):
     """Response model for Candidate."""
     id: str
     run_id: str
     project_id: str
     origin: str
+    status: Optional[str] = None
     mechanism_description: str
     predicted_effects: Optional[dict] = None
     scores: Optional[dict] = None
     constraint_flags: Optional[List[str]] = None
+    parent_ids: List[str] = Field(default_factory=list)
+    provenance_summary: Optional[CandidateProvenanceSummary] = None
+
+
+def _to_candidate_provenance_summary(
+    provenance_log: list[dict] | None,
+) -> CandidateProvenanceSummary | None:
+    """Convert a provenance log into the summary model."""
+    summary_data = summarize_provenance_log(provenance_log)
+    if not summary_data:
+        return None
+
+    last_event_data = summary_data.get("last_event") or {}
+    last_event = None
+    if last_event_data:
+        last_event = ProvenanceEventSummary(
+            type=last_event_data.get("type"),
+            timestamp=last_event_data.get("timestamp"),
+            actor=last_event_data.get("actor"),
+            source=last_event_data.get("source"),
+            description=last_event_data.get("description"),
+        )
+
+    return CandidateProvenanceSummary(
+        event_count=summary_data["event_count"],
+        last_event=last_event,
+    )
+
+
+class ProjectProvenanceResponse(BaseModel):
+    """Aggregated provenance data for a project."""
+    project_id: str
+    problem_spec: List[dict]
+    world_model: List[dict]
+    candidates: List[dict]
 
 
 # Pydantic models for ProblemSpec API
@@ -348,6 +449,7 @@ class ProblemSpecResponse(BaseModel):
     mode: str
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    provenance_log: List[dict] = Field(default_factory=list)
 
 
 class ProblemSpecRefineResponse(BaseModel):
@@ -1334,11 +1436,14 @@ async def list_run_candidates(
                 id=c.id,
                 run_id=c.run_id,
                 project_id=c.project_id,
-                origin=c.origin,
+                origin=_serialize_enum(c.origin),
+                status=_serialize_enum(c.status),
                 mechanism_description=c.mechanism_description,
                 predicted_effects=c.predicted_effects,
                 scores=scores_map.get(c.id) if c.id in scores_map else None,
                 constraint_flags=scores_map.get(c.id, {}).get('constraint_flags') if c.id in scores_map else None,
+                parent_ids=c.parent_ids or [],
+                provenance_summary=_to_candidate_provenance_summary(c.provenance_log),
             )
             for c in candidates
         ]
@@ -1352,6 +1457,105 @@ async def list_run_candidates(
         )
 
 
+@app.get(
+    "/runs/{run_id}/candidates/{candidate_id}",
+    response_model=CandidateDetailResponse,
+)
+async def get_candidate_detail(
+    run_id: str,
+    candidate_id: str,
+    db: Session = Depends(get_db),
+) -> CandidateDetailResponse:
+    """
+    Retrieve candidate detail including provenance and evaluations.
+    """
+    try:
+        from crucible.db.repositories import (
+            get_run as repo_get_run,
+            get_candidate as repo_get_candidate,
+            list_evaluations as repo_list_evaluations,
+        )
+
+        run = repo_get_run(db, run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Run not found: {run_id}",
+            )
+
+        candidate = repo_get_candidate(db, candidate_id)
+        if candidate is None or candidate.run_id != run_id:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Candidate {candidate_id} not found for run {run_id}",
+            )
+
+        evaluations = repo_list_evaluations(db, candidate_id=candidate.id)
+
+        parent_summaries: List[CandidateParentSummary] = []
+        if candidate.parent_ids:
+            for parent_id in candidate.parent_ids:
+                parent = repo_get_candidate(db, parent_id)
+                if parent:
+                    parent_summaries.append(
+                        CandidateParentSummary(
+                            id=parent.id,
+                            mechanism_description=parent.mechanism_description,
+                            status=_serialize_enum(parent.status),
+                        )
+                    )
+
+        def _build_constraint_flags(scores: dict | None) -> List[str] | None:
+            if not scores:
+                return None
+            constraint_satisfaction = scores.get("constraint_satisfaction", {})
+            if not isinstance(constraint_satisfaction, dict):
+                return None
+            flags = [
+                constraint_id
+                for constraint_id, data in constraint_satisfaction.items()
+                if isinstance(data, dict) and not data.get("satisfied", True)
+            ]
+            return flags or None
+
+        evaluation_summaries = [
+            EvaluationSummary(
+                id=ev.id,
+                scenario_id=ev.scenario_id,
+                P=ev.P,
+                R=ev.R,
+                constraint_satisfaction=ev.constraint_satisfaction,
+                explanation=ev.explanation,
+            )
+            for ev in evaluations
+        ]
+
+        return CandidateDetailResponse(
+            id=candidate.id,
+            run_id=candidate.run_id,
+            project_id=candidate.project_id,
+            origin=_serialize_enum(candidate.origin),
+            status=_serialize_enum(candidate.status),
+            mechanism_description=candidate.mechanism_description,
+            predicted_effects=candidate.predicted_effects,
+            scores=candidate.scores,
+            constraint_flags=_build_constraint_flags(candidate.scores),
+            parent_ids=candidate.parent_ids or [],
+            parent_summaries=parent_summaries,
+            provenance_log=candidate.provenance_log or [],
+            evaluations=evaluation_summaries,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving candidate detail {candidate_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving candidate detail: {str(e)}",
+        )
+
+
+# ProblemSpec endpoints
 # ProblemSpec endpoints
 @app.get("/projects/{project_id}/problem-spec", response_model=ProblemSpecResponse)
 async def get_problem_spec(
@@ -2924,6 +3128,64 @@ async def get_workflow_state(
         raise HTTPException(
             status_code=500,
             detail=f"Error getting workflow state: {str(e)}"
+        )
+
+
+@app.get("/projects/{project_id}/provenance", response_model=ProjectProvenanceResponse)
+async def get_project_provenance(
+    project_id: str,
+    db: Session = Depends(get_db),
+) -> ProjectProvenanceResponse:
+    """
+    Aggregate provenance information for a project.
+    """
+    try:
+        from crucible.db.repositories import (
+            get_project as repo_get_project,
+            get_problem_spec as repo_get_problem_spec,
+            get_world_model as repo_get_world_model,
+            list_candidates as repo_list_candidates,
+        )
+
+        project = repo_get_project(db, project_id)
+        if project is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project not found: {project_id}",
+            )
+
+        problem_spec = repo_get_problem_spec(db, project_id)
+        world_model = repo_get_world_model(db, project_id)
+        candidates = repo_list_candidates(db, project_id=project_id)
+
+        problem_spec_log = problem_spec.provenance_log if problem_spec and problem_spec.provenance_log else []
+        world_model_log = []
+        if world_model and isinstance(world_model.model_data, dict):
+            world_model_log = world_model.model_data.get("provenance") or []
+
+        candidate_logs = [
+            {
+                "candidate_id": candidate.id,
+                "run_id": candidate.run_id,
+                "parent_ids": candidate.parent_ids or [],
+                "provenance_log": candidate.provenance_log or [],
+            }
+            for candidate in candidates
+        ]
+
+        return ProjectProvenanceResponse(
+            project_id=project_id,
+            problem_spec=problem_spec_log,
+            world_model=world_model_log,
+            candidates=candidate_logs,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting project provenance for {project_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting project provenance: {str(e)}",
         )
 
 

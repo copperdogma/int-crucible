@@ -196,6 +196,9 @@ class ProblemSpec(Base):
     # Execution mode
     mode = Column(SQLEnum(RunMode), default=RunMode.FULL_SEARCH)
 
+    # Provenance log
+    provenance_log = Column(JSON, nullable=False, default=list)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

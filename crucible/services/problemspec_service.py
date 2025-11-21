@@ -18,8 +18,10 @@ from crucible.db.repositories import (
     list_messages,
     get_project,
     get_chat_session,
+    append_problem_spec_provenance_entry,
 )
 from crucible.db.models import ProblemSpec, ResolutionLevel, RunMode
+from crucible.core.provenance import build_provenance_entry
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +148,21 @@ class ProblemSpecService:
                 applied = self._apply_spec_updates(project_id, current_spec, minimal_spec)
                 # Update spec_delta to reflect the creation
                 spec_delta = self._compute_spec_delta(current_spec_dict, minimal_spec)
+                updated_spec = minimal_spec
+
+            if applied:
+                provenance_entry = build_provenance_entry(
+                    event_type="spec_update",
+                    actor="agent" if chat_session_id else "system",
+                    source=f"chat_session:{chat_session_id}" if chat_session_id else "agent_run",
+                    description=self._summarize_spec_delta_for_provenance(spec_delta, updated_spec),
+                    reference_ids=[project_id],
+                    metadata={
+                        "delta": spec_delta,
+                        "ready_to_run": result.get("ready_to_run", False),
+                    },
+                )
+                append_problem_spec_provenance_entry(self.session, project_id, provenance_entry)
 
             return {
                 "updated_spec": updated_spec,
@@ -337,6 +354,44 @@ class ProblemSpecService:
 
         return delta
 
+    def _summarize_spec_delta_for_provenance(
+        self,
+        spec_delta: Dict[str, Any] | None,
+        updated_spec: Dict[str, Any] | None,
+    ) -> str:
+        """
+        Produce a short summary of changes for provenance logging.
+        """
+        if not spec_delta:
+            return "ProblemSpec updated with no detected delta"
+
+        sections = spec_delta.get("touched_sections", [])
+        pieces = []
+        if sections:
+            pieces.append(f"Updated sections: {', '.join(sorted(sections))}")
+        if spec_delta.get("constraints", {}).get("added"):
+            pieces.append(f"{len(spec_delta['constraints']['added'])} constraints added")
+        if spec_delta.get("constraints", {}).get("updated"):
+            pieces.append(f"{len(spec_delta['constraints']['updated'])} constraints updated")
+        if spec_delta.get("constraints", {}).get("removed"):
+            pieces.append(f"{len(spec_delta['constraints']['removed'])} constraints removed")
+        if spec_delta.get("goals", {}).get("added") or spec_delta.get("goals", {}).get("removed"):
+            added = len(spec_delta.get("goals", {}).get("added", []))
+            removed = len(spec_delta.get("goals", {}).get("removed", []))
+            goal_bits = []
+            if added:
+                goal_bits.append(f"{added} added")
+            if removed:
+                goal_bits.append(f"{removed} removed")
+            if goal_bits:
+                pieces.append("Goals: " + ", ".join(goal_bits))
+        if spec_delta.get("resolution_changed"):
+            pieces.append(f"Resolution → {updated_spec.get('resolution') if updated_spec else 'updated'}")
+        if spec_delta.get("mode_changed"):
+            pieces.append(f"Mode → {updated_spec.get('mode') if updated_spec else 'updated'}")
+
+        return "; ".join(pieces) if pieces else "ProblemSpec updated"
+
     def get_problem_spec(self, project_id: str) -> Optional[Dict[str, Any]]:
         """
         Get ProblemSpec for a project.
@@ -367,6 +422,7 @@ class ProblemSpecService:
                 else str(spec.mode)
             ),
             "created_at": spec.created_at.isoformat() if spec.created_at else None,
-            "updated_at": spec.updated_at.isoformat() if spec.updated_at else None
+            "updated_at": spec.updated_at.isoformat() if spec.updated_at else None,
+            "provenance_log": spec.provenance_log or [],
         }
 

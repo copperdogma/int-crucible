@@ -51,6 +51,8 @@ class TestProblemSpecService:
         assert result["goals"] == ["Goal 1"]
         assert result["resolution"] == "medium"
         assert result["mode"] == "full_search"
+        assert "provenance_log" in result
+        assert result["provenance_log"] == []
     
     def test_get_problem_spec_nonexistent(self, test_db_session):
         """Test retrieving ProblemSpec for project without one."""
@@ -98,6 +100,9 @@ class TestProblemSpecService:
         spec = get_problem_spec(test_db_session, project.id)
         assert spec is not None
         assert len(spec.constraints) == 1
+        assert spec.provenance_log is not None
+        assert len(spec.provenance_log) == 1
+        assert spec.provenance_log[0]["type"] == "spec_update"
     
     @patch('crucible.services.problemspec_service.ProblemSpecAgent')
     def test_refine_problem_spec_update_existing(self, mock_agent_class, test_db_session):
@@ -144,6 +149,8 @@ class TestProblemSpecService:
         spec = get_problem_spec(test_db_session, project.id)
         assert len(spec.constraints) == 2
         assert any(c["name"] == "Performance" for c in spec.constraints)
+        assert spec.provenance_log is not None
+        assert len(spec.provenance_log) >= 1
     
     @patch('crucible.services.problemspec_service.ProblemSpecAgent')
     def test_refine_problem_spec_with_chat_messages(self, mock_agent_class, test_db_session):

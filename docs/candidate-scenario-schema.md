@@ -81,18 +81,35 @@ Candidates are stored in the `crucible_candidates` table with the following stru
 ```json
 [
   {
-    "type": "design|refine|eval_result|feedback",
+    "type": "design|eval_result|ranking|feedback_patch|spec_update",
     "timestamp": "ISO8601 timestamp",
     "actor": "user|system|agent",
-    "source": "agent_run_id|chat_session_id|manual_edit",
+    "source": "run:<run_id>|chat_session:<id>|scenario:<id>|manual_edit",
     "description": "What changed and why",
-    "reference_ids": ["candidate_id", "run_id"]
+    "reference_ids": ["candidate_id", "run_id", "evaluation_id"],
+    "metadata": {
+      "additional": "structured payload for downstream analysis"
+    }
   }
 ]
 ```
 
 #### `parent_ids` (JSON array)
 Array of candidate IDs that this candidate was derived from or inspired by.
+
+#### Canonical Provenance Entry
+
+All provenance logs (ProblemSpec, WorldModel, Candidate) share the same canonical structure:
+
+- `type`: Machine-readable event type (`design`, `eval_result`, `ranking`, `feedback_patch`, `spec_update`, `world_model_update`, etc.)
+- `timestamp`: ISO8601 UTC timestamp.
+- `actor`: `user`, `agent`, or `system`.
+- `source`: Optional pointer to where the change originated (`run:<id>`, `chat_session:<id>`, `scenario:<id>`, `ui_edit`, etc.).
+- `description`: Human-readable summary of the change.
+- `reference_ids`: Optional list of related entity IDs (run, candidate, evaluation, message).
+- `metadata`: Optional structured payload (constraint compliance estimates, evaluation scores, delta summaries, etc.).
+
+This ensures downstream consumers (API, UI, analytics) can reason about lineage consistently and future graph visualizations can reuse the same schema.
 
 ## Scenario Suite Structure
 

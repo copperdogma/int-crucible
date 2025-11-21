@@ -847,3 +847,84 @@ class TestDesignScenarioAPIEndpoints:
         
         app.dependency_overrides.clear()
 
+    @patch('crucible.agents.designer_agent.get_provider')
+    def test_candidate_detail_endpoint_returns_provenance(
+        self,
+        mock_get_provider,
+        test_client,
+        integration_db_session,
+        sample_project_with_spec_and_model,
+        sample_run,
+        mock_designer_llm_response
+    ):
+        """Test GET /runs/{run_id}/candidates/{candidate_id} returns provenance data."""
+        project, _, _ = sample_project_with_spec_and_model
+
+        mock_provider = Mock()
+        mock_provider.generate.return_value = LLMResponse(
+            content=json.dumps(mock_designer_llm_response),
+            usage=UsageStats(input_tokens=200, output_tokens=300, total_tokens=500),
+            model="test-model",
+            finish_reason="stop"
+        )
+        mock_get_provider.return_value = mock_provider
+
+        designer_service = DesignerService(integration_db_session)
+        designer_service.generate_candidates(
+            run_id=sample_run.id,
+            project_id=project.id,
+            num_candidates=1
+        )
+
+        candidate = list_candidates(integration_db_session, run_id=sample_run.id)[0]
+
+        response = test_client.get(f"/runs/{sample_run.id}/candidates/{candidate.id}")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["id"] == candidate.id
+        assert data["run_id"] == sample_run.id
+        assert data["provenance_log"]
+        assert isinstance(data["provenance_log"], list)
+        assert data["parent_ids"] == []
+
+    @patch('crucible.agents.designer_agent.get_provider')
+    def test_project_provenance_endpoint(
+        self,
+        mock_get_provider,
+        test_client,
+        integration_db_session,
+        sample_project_with_spec_and_model,
+        sample_run,
+        mock_designer_llm_response
+    ):
+        """Test GET /projects/{project_id}/provenance endpoint."""
+        project, _, _ = sample_project_with_spec_and_model
+
+        mock_provider = Mock()
+        mock_provider.generate.return_value = LLMResponse(
+            content=json.dumps(mock_designer_llm_response),
+            usage=UsageStats(input_tokens=200, output_tokens=300, total_tokens=500),
+            model="test-model",
+            finish_reason="stop"
+        )
+        mock_get_provider.return_value = mock_provider
+
+        designer_service = DesignerService(integration_db_session)
+        designer_service.generate_candidates(
+            run_id=sample_run.id,
+            project_id=project.id,
+            num_candidates=1
+        )
+
+        response = test_client.get(f"/projects/{project.id}/provenance")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["project_id"] == project.id
+        assert "problem_spec" in data
+        assert "world_model" in data
+        assert "candidates" in data
+        assert len(data["candidates"]) >= 1
+        assert data["candidates"][0]["provenance_log"]
+

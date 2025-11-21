@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { runsApi, Candidate } from '@/lib/api';
+import { runsApi, Candidate, CandidateDetail } from '@/lib/api';
 
 interface ResultsViewProps {
   runId: string;
 }
 
 export default function ResultsView({ runId }: ResultsViewProps) {
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
   const { data: run, isLoading: runLoading } = useQuery({
     queryKey: ['run', runId],
@@ -21,6 +21,22 @@ export default function ResultsView({ runId }: ResultsViewProps) {
     queryFn: () => runsApi.getRankedCandidates(runId),
     enabled: !!runId,
   });
+
+  const { data: candidateDetail, isLoading: candidateDetailLoading } = useQuery({
+    queryKey: ['candidate-detail', runId, selectedCandidateId],
+    queryFn: () => runsApi.getCandidateDetail(runId, selectedCandidateId!),
+    enabled: !!selectedCandidateId,
+  });
+
+  const selectedCandidate = selectedCandidateId
+    ? candidates.find((c) => c.id === selectedCandidateId) || null
+    : null;
+
+  const formatTimestamp = (timestamp?: string) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return isNaN(date.getTime()) ? timestamp : date.toLocaleString();
+  };
 
   if (runLoading || candidatesLoading) {
     return (
@@ -63,7 +79,7 @@ export default function ResultsView({ runId }: ResultsViewProps) {
             sortedCandidates.map((candidate, idx) => (
               <div
                 key={candidate.id}
-                onClick={() => setSelectedCandidate(candidate)}
+                onClick={() => setSelectedCandidateId(candidate.id)}
                 className={`p-3 border rounded cursor-pointer hover:bg-gray-50 ${
                   selectedCandidate?.id === candidate.id ? 'border-blue-500 bg-blue-50' : ''
                 }`}
@@ -91,6 +107,12 @@ export default function ResultsView({ runId }: ResultsViewProps) {
                 <div className="text-sm text-gray-800 line-clamp-2">
                   {candidate.mechanism_description}
                 </div>
+                {candidate.provenance_summary?.last_event && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    Last event: {candidate.provenance_summary.last_event.type ?? 'update'} ·{' '}
+                    {formatTimestamp(candidate.provenance_summary.last_event.timestamp)}
+                  </div>
+                )}
                 {candidate.constraint_flags && candidate.constraint_flags.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {candidate.constraint_flags.map((flag, flagIdx) => (
@@ -116,7 +138,7 @@ export default function ResultsView({ runId }: ResultsViewProps) {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Candidate Details</h3>
               <button
-                onClick={() => setSelectedCandidate(null)}
+                onClick={() => setSelectedCandidateId(null)}
                 className="text-gray-500 hover:text-gray-700"
               >
                 ×
@@ -126,9 +148,34 @@ export default function ResultsView({ runId }: ResultsViewProps) {
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 mb-2">Mechanism Description</h4>
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">
-                  {selectedCandidate.mechanism_description}
+                  {candidateDetail?.mechanism_description ?? selectedCandidate.mechanism_description}
                 </p>
               </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="text-gray-600">
+                  <span className="font-semibold text-gray-800">Origin:</span>{' '}
+                  {(candidateDetail?.origin ?? selectedCandidate.origin) || 'unknown'}
+                </div>
+                <div className="text-gray-600">
+                  <span className="font-semibold text-gray-800">Status:</span>{' '}
+                  {(candidateDetail?.status ?? selectedCandidate.status) || 'unknown'}
+                </div>
+              </div>
+              {candidateDetail?.parent_summaries && candidateDetail.parent_summaries.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">Parents</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {candidateDetail.parent_summaries.map((parent) => (
+                      <div
+                        key={parent.id}
+                        className="px-2 py-1 bg-gray-100 rounded text-xs text-gray-800"
+                      >
+                        {parent.id.slice(0, 8)} — {parent.status ?? 'unknown'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {selectedCandidate.scores && (
                 <div>
                   <h4 className="text-sm font-semibold text-gray-700 mb-2">Scores</h4>
@@ -154,24 +201,76 @@ export default function ResultsView({ runId }: ResultsViewProps) {
                   </div>
                 </div>
               )}
-              {selectedCandidate.constraint_flags && selectedCandidate.constraint_flags.length > 0 && (
+              {(candidateDetail?.constraint_flags ?? selectedCandidate.constraint_flags)?.length ? (
                 <div>
                   <h4 className="text-sm font-semibold text-red-700 mb-2">Constraint Violations</h4>
                   <ul className="list-disc list-inside text-sm text-red-800">
-                    {selectedCandidate.constraint_flags.map((flag, idx) => (
+                    {(candidateDetail?.constraint_flags ?? selectedCandidate.constraint_flags)!.map((flag, idx) => (
                       <li key={idx}>{flag}</li>
                     ))}
                   </ul>
                 </div>
-              )}
-              {selectedCandidate.predicted_effects && (
+              ) : null}
+              {(candidateDetail?.predicted_effects ?? selectedCandidate.predicted_effects) && (
                 <div>
                   <h4 className="text-sm font-semibold text-gray-700 mb-2">Predicted Effects</h4>
                   <pre className="text-xs bg-gray-50 p-3 rounded overflow-x-auto">
-                    {JSON.stringify(selectedCandidate.predicted_effects, null, 2)}
+                    {JSON.stringify(candidateDetail?.predicted_effects ?? selectedCandidate.predicted_effects, null, 2)}
                   </pre>
                 </div>
               )}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Lineage</h4>
+                {candidateDetailLoading ? (
+                  <div className="text-sm text-gray-600">Loading provenance...</div>
+                ) : candidateDetail?.provenance_log?.length ? (
+                  <ul className="space-y-2">
+                    {candidateDetail.provenance_log
+                      .slice()
+                      .reverse()
+                      .map((entry, idx) => (
+                        <li key={`${entry.timestamp}-${idx}`} className="text-sm border-l-2 border-gray-200 pl-3">
+                          <div className="text-gray-900">
+                            <span className="font-semibold">{entry.type}</span> · {formatTimestamp(entry.timestamp)}
+                          </div>
+                          {entry.description && (
+                            <div className="text-gray-700">{entry.description}</div>
+                          )}
+                          <div className="text-xs text-gray-500">
+                            Actor: {entry.actor}
+                            {entry.source ? ` · Source: ${entry.source}` : ''}
+                          </div>
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm text-gray-600">No provenance entries yet.</div>
+                )}
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Evaluations</h4>
+                {candidateDetailLoading ? (
+                  <div className="text-sm text-gray-600">Loading evaluations...</div>
+                ) : candidateDetail?.evaluations?.length ? (
+                  <div className="space-y-2">
+                    {candidateDetail.evaluations.map((evaluation) => (
+                      <div key={evaluation.id} className="border rounded p-2">
+                        <div className="text-xs text-gray-500 mb-1">
+                          Scenario: {evaluation.scenario_id}
+                        </div>
+                        <div className="text-sm text-gray-800">
+                          P: {evaluation.P?.overall ?? 'n/a'} · R: {evaluation.R?.overall ?? 'n/a'}
+                        </div>
+                        {evaluation.explanation && (
+                          <div className="text-xs text-gray-600 mt-1">{evaluation.explanation}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-600">No evaluations recorded yet.</div>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -138,6 +138,8 @@ This document defines the structure of the WorldModel `model_data` JSON field.
 - **actor**: Who/what made the change (user, agent, system)
 - **source**: Reference to source of change (message ID, agent run, etc.)
 - **description**: Description of what changed and why
+- **reference_ids**: Optional related entity IDs (run, chat session, scenario)
+- **metadata**: Optional structured payload mirroring the canonical provenance schema described in `docs/candidate-scenario-schema.md`
 
 ## MVP Notes
 

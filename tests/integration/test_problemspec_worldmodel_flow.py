@@ -571,6 +571,7 @@ class TestFullProblemSpecToWorldModelFlow:
         problem_spec = get_problem_spec(integration_db_session, project.id)
         assert problem_spec is not None
         assert len(problem_spec.constraints) > 0
+        assert problem_spec.provenance_log
         
         # Step 2: Generate WorldModel from ProblemSpec
         worldmodel_service = WorldModelService(integration_db_session)

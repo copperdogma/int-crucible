@@ -41,6 +41,7 @@ export interface ProblemSpec {
   mode: 'full_search' | 'eval_only' | 'seeded';
   created_at?: string;
   updated_at?: string;
+  provenance_log?: Array<Record<string, any>>;
 }
 
 export interface WorldModel {
@@ -89,6 +90,7 @@ export interface Candidate {
   run_id: string;
   project_id: string;
   origin: string;
+  status?: string;
   mechanism_description: string;
   predicted_effects?: Record<string, any>;
   scores?: {
@@ -97,6 +99,46 @@ export interface Candidate {
     I?: number;
   };
   constraint_flags?: string[];
+  parent_ids?: string[];
+  provenance_summary?: {
+    event_count: number;
+    last_event?: {
+      type?: string;
+      timestamp?: string;
+      actor?: string;
+      source?: string;
+      description?: string;
+    };
+  };
+}
+
+export interface CandidateDetail extends Candidate {
+  parent_summaries: Array<{
+    id: string;
+    mechanism_description?: string;
+    status?: string;
+  }>;
+  provenance_log: Array<Record<string, any>>;
+  evaluations: Array<{
+    id: string;
+    scenario_id: string;
+    P?: Record<string, any>;
+    R?: Record<string, any>;
+    constraint_satisfaction?: Record<string, any>;
+    explanation?: string;
+  }>;
+}
+
+export interface ProjectProvenance {
+  project_id: string;
+  problem_spec: Array<Record<string, any>>;
+  world_model: Array<Record<string, any>>;
+  candidates: Array<{
+    candidate_id: string;
+    run_id: string;
+    parent_ids: string[];
+    provenance_log: Array<Record<string, any>>;
+  }>;
 }
 
 export interface GuidanceResponse {
@@ -176,6 +218,9 @@ export const projectsApi = {
       method: 'PUT',
       body: JSON.stringify({ title, description }),
     });
+  },
+  getProvenance: async (projectId: string): Promise<ProjectProvenance> => {
+    return apiFetch<ProjectProvenance>(`/projects/${projectId}/provenance`);
   },
 };
 
@@ -326,6 +371,9 @@ export const runsApi = {
   getRankedCandidates: async (runId: string): Promise<Candidate[]> => {
     // After ranking, candidates should be available via the run
     return apiFetch<Candidate[]>(`/runs/${runId}/candidates`);
+  },
+  getCandidateDetail: async (runId: string, candidateId: string): Promise<CandidateDetail> => {
+    return apiFetch<CandidateDetail>(`/runs/${runId}/candidates/${candidateId}`);
   },
 };
 
