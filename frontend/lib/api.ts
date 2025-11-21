@@ -149,6 +149,18 @@ export const projectsApi = {
       body: JSON.stringify({ title, description }),
     });
   },
+  createFromDescription: async (description: string, suggestedTitle?: string): Promise<Project> => {
+    return apiFetch<Project>('/projects/from-description', {
+      method: 'POST',
+      body: JSON.stringify({ description, suggested_title: suggestedTitle }),
+    });
+  },
+  update: async (projectId: string, title?: string, description?: string): Promise<Project> => {
+    return apiFetch<Project>(`/projects/${projectId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ title, description }),
+    });
+  },
 };
 
 // Chat session endpoints

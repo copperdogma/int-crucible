@@ -285,8 +285,23 @@ class GuidanceService:
         if any(term in query_lower for term in spec_terms):
             return "spec_refinement"
         
-        # Check for world model queries
-        if any(term in query_lower for term in ["world model", "model", "actor", "mechanism"]):
+        # Check for world model queries (but don't treat definitions as build requests)
+        if "world model" in query_lower:
+            if any(
+                phrase in query_lower
+                for phrase in [
+                    "what is a",
+                    "what's a",
+                    "what is the",
+                    "what's the",
+                    "what is",
+                    "what's"
+                ]
+            ):
+                return "clarification"
+            return "world_model_guidance"
+        
+        if any(term in query_lower for term in ["model", "actor", "mechanism"]):
             return "world_model_guidance"
         
         # Check for run-related queries

@@ -107,13 +107,45 @@ class ProblemSpecService:
             result = self.agent.execute(task)
             updated_spec = result.get("updated_spec", {})
 
+            # Check if updated_spec has meaningful data (not just an empty dict)
+            has_meaningful_data = (
+                updated_spec and
+                (
+                    updated_spec.get("constraints") or
+                    updated_spec.get("goals") or
+                    updated_spec.get("resolution") or
+                    updated_spec.get("mode")
+                )
+            )
+
             # Compute delta before applying updates
             spec_delta = self._compute_spec_delta(current_spec_dict, updated_spec)
 
             # Apply updates to database (merge with existing, don't overwrite user constraints)
             applied = False
-            if updated_spec:
+            if has_meaningful_data:
                 applied = self._apply_spec_updates(project_id, current_spec, updated_spec)
+            elif not current_spec and chat_messages:
+                # If no spec exists and we have chat messages, create a minimal spec
+                # This ensures the spec panel shows something even if the agent didn't return data
+                logger.info(f"Agent returned empty spec, creating minimal spec from chat context")
+                # Extract a basic goal from the first user message if available
+                user_messages = [m for m in chat_messages if m.get("role") == "user"]
+                basic_goal = None
+                if user_messages and user_messages[0].get("content"):
+                    # Use first 100 chars of first user message as a basic goal
+                    content = user_messages[0]["content"]
+                    basic_goal = content[:100] + ("..." if len(content) > 100 else "")
+                
+                minimal_spec = {
+                    "constraints": [],
+                    "goals": [basic_goal] if basic_goal else [],
+                    "resolution": "medium",
+                    "mode": "full_search"
+                }
+                applied = self._apply_spec_updates(project_id, current_spec, minimal_spec)
+                # Update spec_delta to reflect the creation
+                spec_delta = self._compute_spec_delta(current_spec_dict, minimal_spec)
 
             return {
                 "updated_spec": updated_spec,

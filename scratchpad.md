@@ -40,7 +40,11 @@
   - This will copy all files to the correct places to start the Project Setup phase
 
 **User Input**  
-- [Log key user decisions and feedback here]
+- 2025-11-20: User insists chat-first project creation use the existing real-time streaming pipeline end-to-end; no snap-in updates.
+- 2025-11-20: UX feedback – spec panel must populate immediately with highlights; Architect must speak in future tense, and project names/descriptions must be inferred.
+- 2025-11-20: Latest request – analyze entire streaming/rendering pipeline (frontend + backend) and rebuild if needed to ensure incremental updates stream correctly in the UI.
+- 2025-11-20: Follow-up tweaks – keep the initial user message visible when the project view loads, have the Architect follow up with next steps after updates finish, and add padding around the resolution label in the spec panel.
+- 2025-11-20: Clarification-only questions (e.g., “What is a world model?”) should not mutate the ProblemSpec/WorldModel unless the user explicitly asks for changes; apply heuristics (keyword combos, send data) to bias toward descriptive answers only.
 
 **Quick Start Assumptions**  
 - [If quick start is used, list assumptions made, e.g., "Assumed minimal UI based on requirements."]

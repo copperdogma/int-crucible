@@ -284,9 +284,17 @@ export default function SpecPanel({ projectId, chatSessionId }: SpecPanelProps) 
 
       {/* Resolution */}
       {problemSpec && problemSpec.resolution && (
-        <div className={getHighlightClass('resolution')}>
+        <div>
           <h4 className="text-sm font-semibold text-gray-700 mb-2">Resolution</h4>
-          <p className={`text-sm text-gray-800 ${getHighlightClass('resolution')}`}>{problemSpec.resolution}</p>
+          {(() => {
+            const resolutionHighlight = getHighlightClass('resolution');
+            const resolutionBorder = resolutionHighlight || 'border-l-2 border-blue-500';
+            return (
+              <p className={`text-sm text-gray-800 pl-3 py-1 ${resolutionBorder}`}>
+                {problemSpec.resolution}
+              </p>
+            );
+          })()}
         </div>
       )}
 

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { messagesApi, chatSessionsApi, problemSpecApi, guidanceApi } from '@/lib/api';
+import { messagesApi, chatSessionsApi, problemSpecApi, guidanceApi, projectsApi } from '@/lib/api';
 import { Message, GuidanceResponse } from '@/lib/api';
+import MessageContent from './MessageContent';
 
 interface DeltaSummaryProps {
   metadata: Record<string, any>;
@@ -153,15 +154,17 @@ function DeltaSummary({ metadata }: DeltaSummaryProps) {
 }
 
 interface ChatInterfaceProps {
-  projectId: string;
+  projectId: string | null;
   chatSessionId: string | null;
   onChatSessionChange: (chatSessionId: string | null) => void;
+  onProjectCreated?: (projectId: string) => void;
 }
 
 export default function ChatInterface({
   projectId,
   chatSessionId,
   onChatSessionChange,
+  onProjectCreated,
 }: ChatInterfaceProps) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -169,17 +172,35 @@ export default function ChatInterface({
   const [streamingContent, setStreamingContent] = useState<string>('');
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<{ what: string; delta?: any } | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+  // Ref to track if we're about to start streaming (for synchronous check in query)
+  const isStartingStreamRef = useRef(false);
+  const lastStreamedMessageIdRef = useRef<string | null>(null);
+  const prevProjectIdRef = useRef<string | null>(null);
+  const [justSwitchedProject, setJustSwitchedProject] = useState(false);
 
-  // Get or create default chat session
+  // Track if we're in project creation mode (no project yet)
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [pendingProjectDescription, setPendingProjectDescription] = useState<string | null>(null);
+  const [hasCreatedProject, setHasCreatedProject] = useState(false); // Prevent duplicate creation
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null); // Show user message while creating
+
+  // Get or create default chat session (only if project exists)
   const { data: chatSessions } = useQuery({
     queryKey: ['chatSessions', projectId],
-    queryFn: () => chatSessionsApi.list(projectId),
+    queryFn: () => projectId ? chatSessionsApi.list(projectId) : [],
+    enabled: !!projectId,
   });
 
   useEffect(() => {
+    // If no project, don't try to manage chat sessions
+    if (!projectId) {
+      return;
+    }
+
     // Reset when project changes
     if (chatSessionId) {
       // Check if the current chat session belongs to this project
@@ -211,17 +232,31 @@ export default function ChatInterface({
     }
   }, [chatSessionId, chatSessions, projectId, onChatSessionChange]);
 
-  // Fetch messages for current chat session
+  // Fetch messages for current chat session (but NOT during streaming - we use streaming pipeline only)
+  // This prevents messages from "popping in" while streaming is happening
+  // CRITICAL: The query is disabled during streaming to ensure we only show streaming content
+  // Use ref check for synchronous evaluation (React state updates are async)
   const { data: messages = [], isLoading: messagesLoading } = useQuery({
     queryKey: ['messages', chatSessionId],
     queryFn: () => (chatSessionId ? messagesApi.list(chatSessionId) : []),
     enabled: !!chatSessionId,
+    keepPreviousData: true,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  // Scroll to bottom when messages change or streaming content updates
+  // Show initial greeting when no project exists
+  const showInitialGreeting = !projectId && !isCreatingProject && !pendingProjectDescription;
+
+  // Scroll to appropriate position when messages change
   useEffect(() => {
+    if (justSwitchedProject) {
+      messagesContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      setJustSwitchedProject(false);
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, justSwitchedProject]);
 
   // Hide streaming message once saved message with delta appears
   useEffect(() => {
@@ -246,12 +281,182 @@ export default function ChatInterface({
     }
   }, [chatSessionId, messagesLoading]);
 
+  // Auto-focus input when showing initial greeting (no project, first-time user)
+  useEffect(() => {
+    if (showInitialGreeting && !projectId) {
+      // Small delay to ensure input is rendered
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [showInitialGreeting, projectId]);
+
+  const startArchitectReplyStream = useCallback(
+    async (sessionId: string, projectIdForStream: string) => {
+      if (!sessionId || !projectIdForStream) {
+        return;
+      }
+
+      isStartingStreamRef.current = true;
+      setIsGeneratingReply(true);
+      setStreamingContent('');
+      setStreamingMessageId(null);
+      setUpdatingStatus(null);
+
+      try {
+        await guidanceApi.generateArchitectReplyStream(
+          sessionId,
+          (chunk: string) => {
+            setStreamingContent((prev) => prev + chunk);
+          },
+          async (messageId: string) => {
+            setStreamingMessageId(messageId);
+            isStartingStreamRef.current = false;
+            setIsGeneratingReply(false);
+            await queryClient.invalidateQueries({ queryKey: ['messages', sessionId] });
+            await queryClient.invalidateQueries({ queryKey: ['problemSpec', projectIdForStream] });
+            await queryClient.invalidateQueries({ queryKey: ['worldModel', projectIdForStream] });
+            setTimeout(() => {
+              inputRef.current?.focus();
+            }, 100);
+          },
+          async (error: string) => {
+            console.error('Failed to generate Architect reply:', error);
+            setStreamingContent('');
+            setStreamingMessageId(null);
+            isStartingStreamRef.current = false;
+            setIsGeneratingReply(false);
+            setUpdatingStatus(null);
+            await queryClient.invalidateQueries({ queryKey: ['messages', sessionId] });
+            setTimeout(() => {
+              inputRef.current?.focus();
+            }, 100);
+          },
+          (what: string) => {
+            setUpdatingStatus({ what });
+          },
+          (delta: any, what: string) => {
+            setUpdatingStatus({ what, delta });
+          }
+        );
+      } catch (error) {
+        console.error('Failed to start streaming Architect reply:', error);
+        isStartingStreamRef.current = false;
+        setIsGeneratingReply(false);
+        setStreamingContent('');
+        setStreamingMessageId(null);
+        try {
+          await guidanceApi.generateArchitectReply(sessionId);
+          await queryClient.invalidateQueries({ queryKey: ['messages', sessionId] });
+        } catch (fallbackError) {
+          console.error('Fallback also failed:', fallbackError);
+          await queryClient.invalidateQueries({ queryKey: ['messages', sessionId] });
+        }
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 100);
+      }
+    },
+    [queryClient]
+  );
+
+  useEffect(() => {
+    lastStreamedMessageIdRef.current = null;
+  }, [chatSessionId]);
+
+  useEffect(() => {
+    if (!projectId) {
+      prevProjectIdRef.current = null;
+      return;
+    }
+    if (prevProjectIdRef.current === projectId) {
+      return;
+    }
+    prevProjectIdRef.current = projectId;
+    setJustSwitchedProject(true);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId || !chatSessionId) {
+      return;
+    }
+    if (isGeneratingReply || isStartingStreamRef.current || messagesLoading) {
+      return;
+    }
+    if (!messages || messages.length === 0) {
+      return;
+    }
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role !== 'user') {
+      return;
+    }
+    if (lastStreamedMessageIdRef.current === lastMessage.id) {
+      return;
+    }
+    lastStreamedMessageIdRef.current = lastMessage.id;
+    startArchitectReplyStream(chatSessionId, projectId);
+  }, [
+    projectId,
+    chatSessionId,
+    messages,
+    messagesLoading,
+    isGeneratingReply,
+    startArchitectReplyStream,
+  ]);
+
+  // Mutation for creating project from description
+  const createProjectMutation = useMutation({
+    mutationFn: async (description: string) => {
+      return projectsApi.createFromDescription(description);
+    },
+    onSuccess: async (project) => {
+      // Mark that we've created a project to prevent duplicates
+      setHasCreatedProject(true);
+      
+      // Project created - notify parent
+      if (onProjectCreated) {
+        onProjectCreated(project.id);
+      }
+      // Refresh projects list
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+      
+      // Get chat session immediately (it was created by backend)
+      const sessions = await chatSessionsApi.list(project.id);
+      if (sessions.length > 0) {
+        const chatSessionId = sessions[0].id;
+        onChatSessionChange(chatSessionId);
+      }
+      setIsCreatingProject(false);
+      setPendingProjectDescription(null);
+      setPendingUserMessage(null); // Clear pending message once project is created
+    },
+    onError: (error) => {
+      console.error('Failed to create project:', error);
+      setIsCreatingProject(false);
+      setPendingProjectDescription(null);
+      alert('Failed to create project. Please try again.');
+    },
+  });
+
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
+      // If no project, create one from the description
+      if (!projectId) {
+        setIsCreatingProject(true);
+        setPendingProjectDescription(content);
+        setPendingUserMessage(content); // Show user's message immediately
+        return createProjectMutation.mutateAsync(content);
+      }
+      
       if (!chatSessionId) throw new Error('No chat session');
       return messagesApi.create(chatSessionId, content, 'user');
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      // If we just created a project, the mutation handler above will handle it
+      if (!projectId) {
+        return;
+      }
+
       // Refetch messages
       await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
       
@@ -260,74 +465,14 @@ export default function ChatInterface({
         console.error('Failed to refine problem spec:', error);
       });
       
-      // Automatically generate Architect reply with streaming
-      setIsGeneratingReply(true);
-      setStreamingContent('');
-      setStreamingMessageId(null);
-      
-      try {
-        await guidanceApi.generateArchitectReplyStream(
-          chatSessionId,
-          (chunk: string) => {
-            // Update streaming content as chunks arrive
-            setStreamingContent((prev) => prev + chunk);
-          },
-          async (messageId: string) => {
-            // Streaming completed - refetch messages to get the final message with delta
-            setStreamingMessageId(messageId);
-            setIsGeneratingReply(false);
-            // Invalidate messages first (so spec panel can read deltas)
-            await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
-            // Then invalidate spec (which may have been updated based on delta)
-            await queryClient.invalidateQueries({ queryKey: ['problemSpec', projectId] });
-            await queryClient.invalidateQueries({ queryKey: ['worldModel', projectId] });
-            // Note: Streaming state will be cleared by useEffect when saved message appears
-            // The saved message will show the delta summary via DeltaSummary component
-            // Refocus input after Architect reply completes
-            setTimeout(() => {
-              inputRef.current?.focus();
-            }, 100);
-          },
-          async (error: string) => {
-            // Error occurred during streaming
-            console.error('Failed to generate Architect reply:', error);
-            setStreamingContent('');
-            setStreamingMessageId(null);
-            setIsGeneratingReply(false);
-            setUpdatingStatus(null);
-            // Refetch to show any system error messages
-            await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
-            // Refocus input
-            setTimeout(() => {
-              inputRef.current?.focus();
-            }, 100);
-          },
-          (what: string) => {
-            // Backend is updating something
-            setUpdatingStatus({ what });
-          },
-          (delta: any, what: string) => {
-            // Backend finished updating
-            setUpdatingStatus({ what, delta });
-          }
-        );
-      } catch (error) {
-        console.error('Failed to start streaming Architect reply:', error);
-        setIsGeneratingReply(false);
-        setStreamingContent('');
-        setStreamingMessageId(null);
-        // Fallback: try non-streaming endpoint
-        try {
-          await guidanceApi.generateArchitectReply(chatSessionId);
-          await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
-        } catch (fallbackError) {
-          console.error('Fallback also failed:', fallbackError);
-          await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
-        }
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 100);
+      // Track latest user message so auto-streaming doesn't retrigger
+      if (result?.id) {
+        lastStreamedMessageIdRef.current = result.id;
       }
+      
+      startArchitectReplyStream(chatSessionId, projectId).catch((error) => {
+        console.error('Failed to stream Architect reply:', error);
+      });
       
       // Note: Spec and world model queries are invalidated after streaming completes
       // (in the onDone callback) so they pick up the deltas from messages
@@ -336,9 +481,23 @@ export default function ChatInterface({
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Prevent sending if already sending, no message, or no session
-    // But allow typing even when agent is generating reply
-    if (!message.trim() || isSending || !chatSessionId) return;
+    // Prevent sending if already sending or no message
+    // Allow sending even without project (will create project)
+    if (!message.trim() || isSending || isCreatingProject) return;
+    
+    // Prevent duplicate project creation
+    if (!projectId && hasCreatedProject) {
+      alert('A project has already been created. Please refresh the page to create another project.');
+      return;
+    }
+    
+    // If no project and no chat session, allow sending (will create project)
+    if (!projectId && !chatSessionId && message.trim()) {
+      // This is fine - we'll create the project
+    } else if (!projectId || (!chatSessionId && projectId)) {
+      // If we have a project but no session, wait for session to be created
+      return;
+    }
 
     const messageToSend = message.trim();
     setMessage(''); // Clear input immediately so user can type next message
@@ -356,7 +515,9 @@ export default function ChatInterface({
   };
 
 
-  if (messagesLoading) {
+  // Don't show loading screen during streaming - we're using streaming pipeline
+  // Check ref synchronously (React state updates are async)
+  if (messagesLoading && projectId && !isGeneratingReply && !isStartingStreamRef.current) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-gray-900">Loading messages...</div>
@@ -367,12 +528,48 @@ export default function ChatInterface({
   return (
     <div className="flex-1 flex flex-col h-full">
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && !streamingContent && !isGeneratingReply ? (
-          <div className="text-center text-gray-700 mt-8">
-            Start a conversation by describing your problem...
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Show initial greeting when no project */}
+        {showInitialGreeting && (
+          <div className="flex justify-start">
+              <div className="max-w-[80%] rounded-lg px-4 py-2 bg-green-100 text-green-900">
+              <div className="text-sm font-medium mb-1">Architect</div>
+              <MessageContent content={`Hello! I'm the Architect, your AI assistant for Int Crucible.
+
+Int Crucible is a multi-agent reasoning system that helps you solve complex problems by:
+- Structuring your problem with constraints and goals
+- Building a world model of your domain
+- Generating and evaluating solution candidates
+- Ranking them by intelligence (prediction quality / resource cost)
+
+What are you trying to solve or make? Describe your problem, and I'll create a project for you.`} />
+            </div>
           </div>
-        ) : (
+        )}
+
+        {/* Show user's message while project is being created OR during initial streaming */}
+        {/* We show this immediately so user doesn't feel their input is lost */}
+        {pendingUserMessage && (isCreatingProject || (isGeneratingReply && !messages.length)) && (
+          <div className="flex justify-end">
+            <div className="max-w-[80%] rounded-lg px-4 py-2 bg-blue-600 text-white">
+              <div className="text-sm font-medium mb-1">You</div>
+              <MessageContent content={pendingUserMessage} />
+            </div>
+          </div>
+        )}
+
+        {/* Show creating project status only briefly, then immediately start streaming */}
+        {isCreatingProject && !isGeneratingReply && (
+          <div className="flex justify-start">
+            <div className="max-w-[80%] rounded-lg px-4 py-2 bg-blue-100 text-blue-900">
+              <div className="text-sm font-medium mb-1">System</div>
+              <div>Creating your project...</div>
+            </div>
+          </div>
+        )}
+
+        {/* Show existing messages (even during streaming so prior context stays visible) */}
+        {messages.length > 0 && (
           <>
             {messages.map((msg: Message) => (
             <div
@@ -397,7 +594,7 @@ export default function ChatInterface({
                     ? (msg.message_metadata?.agent_name || 'Architect')
                     : 'System'}
                 </div>
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                <MessageContent content={msg.content} />
                 {msg.role === 'agent' && msg.message_metadata && (
                   <DeltaSummary metadata={msg.message_metadata} />
                 )}
@@ -431,38 +628,40 @@ export default function ChatInterface({
               </div>
             </div>
           ))}
-          {/* Show typing indicator or streaming message (only if not already in saved messages) */}
-          {(isGeneratingReply || streamingContent || (updatingStatus && !messages.find(m => m.id === streamingMessageId && m.message_metadata?.spec_delta))) && (
-            <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-lg px-4 py-2 bg-green-100 text-green-900">
-                <div className="text-sm font-medium mb-1">
-                  {streamingContent ? 'Architect' : 'Architect is thinking...'}
-                </div>
-                {streamingContent ? (
-                  <div className="whitespace-pre-wrap">{streamingContent}</div>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <span className="animate-pulse">●</span>
-                    <span className="animate-pulse delay-75">●</span>
-                    <span className="animate-pulse delay-150">●</span>
-                  </div>
-                )}
-                {/* Show updating status and delta summary */}
-                {updatingStatus && (
-                  <div className="mt-2 pt-2 border-t border-green-200">
-                    {updatingStatus.delta ? (
-                      <DeltaSummary metadata={{ spec_delta: updatingStatus.delta }} />
-                    ) : (
-                      <div className="text-xs text-green-700">
-                        Updating {updatingStatus.what}...
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
           </>
+        )}
+        
+        {/* Show streaming content (ALWAYS during streaming, even if messages exist) */}
+        {/* This is the ONLY rendering pipeline during streaming - no database queries interfere */}
+        {(isGeneratingReply || streamingContent || updatingStatus) && (
+          <div className="flex justify-start">
+            <div className="max-w-[80%] rounded-lg px-4 py-2 bg-green-100 text-green-900">
+              <div className="text-sm font-medium mb-1">
+                {streamingContent ? 'Architect' : 'Architect is thinking...'}
+              </div>
+              {streamingContent ? (
+                <MessageContent content={streamingContent} />
+              ) : (
+                <div className="flex items-center gap-1">
+                  <span className="animate-pulse">●</span>
+                  <span className="animate-pulse delay-75">●</span>
+                  <span className="animate-pulse delay-150">●</span>
+                </div>
+              )}
+              {/* Show updating status and delta summary */}
+              {updatingStatus && (
+                <div className="mt-2 pt-2 border-t border-green-200">
+                  {updatingStatus.delta ? (
+                    <DeltaSummary metadata={{ spec_delta: updatingStatus.delta }} />
+                  ) : (
+                    <div className="text-xs text-green-700">
+                      Updating {updatingStatus.what}...
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -475,12 +674,12 @@ export default function ChatInterface({
             type="text"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="Type your message..."
+            placeholder={projectId ? "Type your message..." : "Describe what you're trying to solve or make..."}
             className="flex-1 px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-            disabled={!chatSessionId}
+            disabled={isCreatingProject}
             onKeyDown={(e) => {
-              // Allow Enter to send, but prevent sending while agent is replying
-              if (e.key === 'Enter' && !e.shiftKey && !isSending && !isGeneratingReply && message.trim() && chatSessionId) {
+              // Allow Enter to send, but prevent sending while agent is replying or creating project
+              if (e.key === 'Enter' && !e.shiftKey && !isSending && !isGeneratingReply && !isCreatingProject && message.trim()) {
                 e.preventDefault();
                 handleSend(e);
               }
@@ -488,10 +687,10 @@ export default function ChatInterface({
           />
           <button
             type="submit"
-            disabled={isSending || isGeneratingReply || !message.trim() || !chatSessionId}
+            disabled={isSending || isGeneratingReply || isCreatingProject || !message.trim()}
             className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isSending ? 'Sending...' : isGeneratingReply ? 'Architect is replying...' : 'Send'}
+            {isCreatingProject ? 'Creating...' : isSending ? 'Sending...' : isGeneratingReply ? 'Architect is replying...' : 'Send'}
           </button>
         </form>
       </div>

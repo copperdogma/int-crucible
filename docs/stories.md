@@ -22,7 +22,7 @@ Int Crucible
 | 008b     | Add test tooling and fix run execution issues     | High     | Done    | /docs/stories/story-008b-test-tooling-and-run-fixes.md  |
 | 009      | Implement feedback loop and issue handling        | Medium   | To Do    | /docs/stories/story-009-feedback-and-issues.md          |
 | 010      | Support multiple chats and runs per project       | Medium   | To Do    | /docs/stories/story-010-multi-chat-and-run-history.md   |
-| 011      | Native LLM function calling for Architect persona (Guidance) | High     | To Do    | /docs/stories/story-011-native-llm-function-calling-for-guidance.md |
+| 011      | Native LLM function calling for Architect persona (Guidance) | High     | Done    | /docs/stories/story-011-native-llm-function-calling-for-guidance.md |
 | 012      | Architect-led conversational loop and full interaction logging | High     | Done    | /docs/stories/story-012-architect-chat-loop-and-logging.md |
 | 013      | Spec/world-model deltas and live highlighting     | High     | Done    | /docs/stories/story-013-spec-deltas-and-highlighting.md |
 | 014      | Streaming architect responses and typing indicators | High     | Done    | /docs/stories/story-014-streaming-and-typing-indicators.md |

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-11-20] - Story 015: Chat-first project creation and streaming pipeline improvements
+
+### Added
+- **Story 015: Chat-first project creation and selection** (Complete)
+  - Chat-first project creation:
+    - Architect automatically greets users when no project is selected
+    - Project creation triggered by natural language description from user
+    - LLM-based project title and description inference from user input
+    - Automatic chat session creation linked to new project
+    - Initial greeting streamed through real-time pipeline
+  - Streaming pipeline improvements:
+    - Chat history remains visible during streaming (no "pop-in" effect)
+    - Messages query disabled during streaming to prevent interference
+    - Synchronous ref tracking (`isStartingStreamRef`) prevents race conditions
+    - React Query cache cleared before streaming starts for clean state
+    - Proper scroll-to-top behavior when switching projects
+  - Heuristic-based spec refinement prevention:
+    - Clarification queries ("what is...", "how does...") no longer trigger spec updates
+    - `_should_refine_problem_spec()` method checks query intent before refinement
+    - Prevents unwanted spec mutations when user is just asking questions
+    - Still allows refinement when user explicitly asks for spec changes
+  - New UI components:
+    - `MessageContent.tsx`: Proper line break rendering for AI-generated messages
+    - `ProjectEditModal.tsx`: Inline project title/description editing
+  - Architect follow-up improvements:
+    - Summary of updates appended to Architect messages ("All set — added X constraints...")
+    - Next steps suggested based on workflow stage
+    - Future-tense language ("I'm going to...") instead of past-tense ("I've done...")
+
+### Fixed
+- Chat history disappearing during streaming (messages now always rendered)
+- "Send" button stuck in "Sending..." mode (proper state management)
+- Spec panel Resolution padding (text no longer "mushed" against highlight border)
+- Unexpected world model generation on clarification queries
+- Initial user message hidden by Workflow Progress box (auto-scroll to top)
+- Line breaks not respected in AI-generated messages (new MessageContent component)
+
+### Changed
+- Project creation flow moved from modal form to conversational chat interface
+- Streaming pipeline consolidated to single real-time update system
+- Guidance service now uses heuristics to determine if spec refinement is appropriate
+- ProblemSpec service ensures minimal spec created even if agent returns empty updates
+- Workflow stage determination improved (remains "setup" until both ProblemSpec and WorldModel exist)
+
 ### Added
 - **Story 011: Native LLM Function Calling for Guidance/Architect** (2025-01-17)
   - Native LLM function calling infrastructure:

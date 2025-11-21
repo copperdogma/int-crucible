@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { projectsApi } from '@/lib/api';
-import ProjectSelector from '@/components/ProjectSelector';
+import { projectsApi, Project } from '@/lib/api';
 import ChatInterface from '@/components/ChatInterface';
 import SpecPanel from '@/components/SpecPanel';
 import RunConfigPanel from '@/components/RunConfigPanel';
 import ResultsView from '@/components/ResultsView';
 import WorkflowProgress from '@/components/WorkflowProgress';
+import ProjectEditModal from '@/components/ProjectEditModal';
 
 export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -17,6 +17,7 @@ export default function Home() {
   const [showSpecPanel, setShowSpecPanel] = useState(true);
   const [showRunConfig, setShowRunConfig] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [showProjectEdit, setShowProjectEdit] = useState(false);
   const queryClient = useQueryClient();
   const specPanelScrollRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTopRef = useRef(false);
@@ -60,24 +61,84 @@ export default function Home() {
     );
   }
 
-  // If no project selected, show project selector
+  // If no project selected, show chat-first interface
   if (!selectedProjectId) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="container mx-auto px-4 py-8">
-          <h1 className="text-3xl font-bold mb-8 text-gray-900">Int Crucible</h1>
-          <ProjectSelector
-            projects={projects || []}
-            onSelectProject={(projectId) => {
-              setSelectedProjectId(projectId);
-              // Create or get default chat session for this project
-              // For now, we'll handle this in ChatInterface
-            }}
-            onCreateProject={async (title, description) => {
-              const newProject = await projectsApi.create(title, description);
-              setSelectedProjectId(newProject.id);
-            }}
-          />
+      <div className="flex h-screen bg-gray-50">
+        {/* Main chat area */}
+        <div className="flex-1 flex flex-col">
+          <div className="bg-white border-b px-4 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <h2 className="text-lg font-semibold text-gray-900">Int Crucible</h2>
+            </div>
+            <div className="flex gap-2">
+              {projects && projects.length > 0 && (
+                <button
+                  onClick={() => {
+                    // Show project selector in a modal or side panel
+                    // For now, we'll add a simple dropdown or keep it minimal
+                  }}
+                  className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+                >
+                  Select Project
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 flex overflow-hidden min-h-0">
+            {/* Chat interface for project creation */}
+            <div className="flex-1 flex flex-col min-h-0">
+              <ChatInterface
+                projectId={null}
+                chatSessionId={null}
+                onChatSessionChange={(chatSessionId) => {
+                  // When a project is created, the ChatInterface will call onProjectCreated
+                }}
+                onProjectCreated={(projectId) => {
+                  setSelectedProjectId(projectId);
+                  // Refresh projects list
+                  queryClient.invalidateQueries({ queryKey: ['projects'] });
+                }}
+              />
+            </div>
+
+            {/* Project selector sidebar (if projects exist) */}
+            {projects && projects.length > 0 && (
+              <div className="w-64 border-l bg-white flex-shrink-0 flex flex-col">
+                <div className="p-4 border-b">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2">Your Projects</h3>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2">
+                  {projects.map((project) => (
+                    <button
+                      key={project.id}
+                      onClick={() => setSelectedProjectId(project.id)}
+                      className={`w-full text-left px-3 py-2 rounded mb-1 text-sm ${
+                        selectedProjectId === project.id
+                          ? 'bg-blue-100 text-blue-900 font-medium'
+                          : 'hover:bg-gray-100 text-gray-900'
+                      }`}
+                    >
+                      {project.title}
+                    </button>
+                  ))}
+                </div>
+                <div className="p-2 border-t">
+                  <button
+                    onClick={() => {
+                      // Start new project creation flow
+                      // This will be handled by ChatInterface showing the greeting
+                      setSelectedProjectId(null);
+                    }}
+                    className="w-full px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    + New Project
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -98,6 +159,13 @@ export default function Home() {
             <h2 className="text-lg font-semibold text-gray-900">
               {projects?.find(p => p.id === selectedProjectId)?.title || 'Project'}
             </h2>
+            <button
+              onClick={() => setShowProjectEdit(true)}
+              className="text-sm text-gray-500 hover:text-gray-700"
+              title="Edit project"
+            >
+              ✏️
+            </button>
           </div>
           <div className="flex gap-2">
             <button
@@ -206,6 +274,18 @@ export default function Home() {
             <ResultsView runId={activeRunId} />
           </div>
         </div>
+      )}
+
+      {/* Project edit modal */}
+      {showProjectEdit && selectedProjectId && (
+        <ProjectEditModal
+          project={projects?.find(p => p.id === selectedProjectId)!}
+          onClose={() => setShowProjectEdit(false)}
+          onUpdated={(updatedProject) => {
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+            setShowProjectEdit(false);
+          }}
+        />
       )}
     </div>
   );

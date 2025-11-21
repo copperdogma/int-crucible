@@ -183,6 +183,12 @@ class ProjectCreateRequest(BaseModel):
     description: Optional[str] = None
 
 
+class ProjectCreateFromDescriptionRequest(BaseModel):
+    """Request model for creating project from description (chat-first flow)."""
+    description: str
+    suggested_title: Optional[str] = None
+
+
 class ProjectResponse(BaseModel):
     """Response model for Project."""
     id: str
@@ -474,6 +480,49 @@ async def list_projects(
         )
 
 
+def _infer_project_title(description: str) -> str:
+    """
+    Infer a project title from a description.
+    
+    Uses a simple heuristic: take the first sentence or first 50 characters,
+    clean it up, and use as title. Falls back to "New Project" if description is empty.
+    
+    Args:
+        description: Project description text
+        
+    Returns:
+        Inferred project title
+    """
+    if not description or not description.strip():
+        return "New Project"
+    
+    # Clean up the description
+    desc = description.strip()
+    
+    # Try to extract first sentence (up to first period, exclamation, or question mark)
+    import re
+    sentence_match = re.match(r'^([^.!?]+[.!?]?)', desc)
+    if sentence_match:
+        title = sentence_match.group(1).strip()
+        # Remove trailing punctuation if it's just one character
+        if len(title) > 1 and title[-1] in '.!?':
+            title = title[:-1].strip()
+    else:
+        # No sentence boundary found, take first 50 characters
+        title = desc[:50].strip()
+    
+    # Clean up: remove extra whitespace, limit length
+    title = re.sub(r'\s+', ' ', title)
+    if len(title) > 60:
+        title = title[:57] + "..."
+    
+    # Ensure we have something
+    if not title or len(title) < 3:
+        return "New Project"
+    
+    return title
+
+
 @app.post("/projects", response_model=ProjectResponse)
 async def create_project(
     request: ProjectCreateRequest,
@@ -511,6 +560,133 @@ async def create_project(
             status_code=500,
             detail=f"Error creating project: {str(e)}"
         )
+
+
+@app.post("/projects/from-description", response_model=ProjectResponse)
+async def create_project_from_description(
+    request: ProjectCreateFromDescriptionRequest,
+    db: Session = Depends(get_db)
+) -> ProjectResponse:
+    """
+    Create a new project from a free-text description (chat-first flow).
+    
+    Infers a project title from the description if not provided.
+    Also creates an initial chat session for the project.
+    
+    Args:
+        request: Project creation request with description
+        db: Database session
+        
+    Returns:
+        Created project with initial chat session
+    """
+    try:
+        from crucible.db.repositories import (
+            create_project as repo_create_project,
+            update_project as repo_update_project,
+            get_project as repo_get_project,
+            create_chat_session as repo_create_chat_session,
+            create_message as repo_create_message
+        )
+        from crucible.db.models import MessageRole
+        from crucible.services.guidance_service import GuidanceService
+        from crucible.services.problemspec_service import ProblemSpecService
+        
+        # Create temporary project (we'll update it with generated name/description)
+        temp_project = repo_create_project(
+            db,
+            title="New Project",
+            description=request.description
+        )
+        
+        # Create initial chat session
+        chat_session = repo_create_chat_session(
+            db,
+            project_id=temp_project.id,
+            title="Main Chat",
+            mode="setup"
+        )
+        
+        # Create user's initial message
+        user_message = repo_create_message(
+            db,
+            chat_session_id=chat_session.id,
+            role="user",
+            content=request.description
+        )
+        
+        # Generate better project name and description using LLM
+        title = request.suggested_title
+        description = request.description
+        
+        if not title:
+            try:
+                from kosmos.core.llm import get_provider
+                import json
+                import re
+                
+                llm_provider = get_provider()
+                naming_prompt = f"""Based on this project description, generate a concise, professional project name (2-6 words) and a brief description (1-2 sentences) that summarizes the project goals.
+
+User description: "{request.description[:500]}"
+
+Respond with JSON only:
+{{
+    "title": "concise project name",
+    "description": "brief project description"
+}}"""
+                
+                response = llm_provider.generate(
+                    naming_prompt,
+                    system="You are a helpful assistant that creates clear, concise project names and descriptions.",
+                    temperature=0.7,
+                    max_tokens=200
+                )
+                
+                # Parse JSON response (may be in code blocks)
+                content = response.content.strip()
+                # Try to extract JSON from markdown code blocks if present
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+                if json_match:
+                    content = json_match.group(1)
+                
+                parsed = json.loads(content)
+                title = parsed.get("title", _infer_project_title(request.description))
+                description = parsed.get("description", request.description)
+            except Exception as e:
+                logger.warning(f"Could not generate LLM project name/description: {e}. Using fallback.")
+                title = _infer_project_title(request.description)
+                description = request.description
+        
+        # Update project with generated title and description
+        repo_update_project(
+            db,
+            project_id=temp_project.id,
+            title=title,
+            description=description
+        )
+        
+        project = repo_get_project(db, temp_project.id)
+        
+        return ProjectResponse(
+            id=project.id,
+            title=project.title,
+            description=project.description,
+            created_at=project.created_at.isoformat() if project.created_at else None,
+            updated_at=project.updated_at.isoformat() if project.updated_at else None,
+        )
+    except Exception as e:
+        logger.error(f"Error creating project from description: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating project from description: {str(e)}"
+        )
+
+
+class ProjectUpdateRequest(BaseModel):
+    """Request model for project update."""
+    title: Optional[str] = None
+    description: Optional[str] = None
 
 
 @app.get("/projects/{project_id}", response_model=ProjectResponse)
@@ -552,6 +728,56 @@ async def get_project(
         raise HTTPException(
             status_code=500,
             detail=f"Error getting project: {str(e)}"
+        )
+
+
+@app.put("/projects/{project_id}", response_model=ProjectResponse)
+async def update_project(
+    project_id: str,
+    request: ProjectUpdateRequest,
+    db: Session = Depends(get_db)
+) -> ProjectResponse:
+    """
+    Update a project.
+    
+    Args:
+        project_id: Project ID
+        request: Project update request
+        db: Database session
+        
+    Returns:
+        Updated project
+    """
+    try:
+        from crucible.db.repositories import update_project as repo_update_project
+        
+        project = repo_update_project(
+            db,
+            project_id=project_id,
+            title=request.title,
+            description=request.description
+        )
+        
+        if project is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project not found: {project_id}"
+            )
+        
+        return ProjectResponse(
+            id=project.id,
+            title=project.title,
+            description=project.description,
+            created_at=project.created_at.isoformat() if project.created_at else None,
+            updated_at=project.updated_at.isoformat() if project.updated_at else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating project: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating project: {str(e)}"
         )
 
 
@@ -1656,7 +1882,8 @@ async def generate_architect_reply(
         
         # Refine ProblemSpec if it seems appropriate (spec-related query or early stage)
         # Note: Frontend may have already called refine, so we check if spec was recently updated
-        if guidance_type in ["spec_refinement", "setup_guidance"] or workflow_stage == "setup":
+        allow_spec_refine = _should_refine_problem_spec(user_query, guidance_type, workflow_stage)
+        if guidance_type in ["spec_refinement", "setup_guidance"] or (workflow_stage == "setup" and allow_spec_refine):
             try:
                 from crucible.db.repositories import get_problem_spec
                 from datetime import datetime, timedelta
@@ -1886,6 +2113,49 @@ async def generate_architect_reply(
             )
 
 
+# Heuristic to decide whether we should auto-refine the ProblemSpec after a user message
+def _should_refine_problem_spec(
+    user_query: Optional[str],
+    guidance_type: str,
+    workflow_stage: str
+) -> bool:
+    """
+    Avoid mutating the ProblemSpec when the user is only asking for clarification
+    (e.g., “What is a world model?”) instead of providing new requirements.
+    """
+    if guidance_type == "spec_refinement":
+        return True
+
+    if workflow_stage != "setup":
+        return False
+
+    if not user_query:
+        # Initial description still needs ProblemSpec generation
+        return True
+
+    text = user_query.strip().lower()
+    if not text:
+        return True
+
+    clarification_phrases = [
+        "what is", "what's", "what does", "what do", "tell me about",
+        "can you explain", "help me understand", "how does", "why does", "what are"
+    ]
+    spec_signal_terms = [
+        "constraint", "goal", "add", "include", "update", "change",
+        "requirement", "target", "should be", "need to", "set", "weight", "priority"
+    ]
+
+    looks_like_question = text.endswith("?") or text.startswith(("what", "how", "why", "can", "should"))
+    has_clarification_phrase = any(phrase in text for phrase in clarification_phrases)
+    has_spec_terms = any(term in text for term in spec_signal_terms)
+
+    if (looks_like_question or has_clarification_phrase) and not has_spec_terms:
+        return False
+
+    return True
+
+
 @app.post("/chat-sessions/{chat_session_id}/architect-reply-stream")
 async def generate_architect_reply_stream(
     chat_session_id: str,
@@ -1912,6 +2182,44 @@ async def generate_architect_reply_stream(
     """
     def generate_stream():
         """Generator for SSE streaming (sync because Anthropic stream is sync)."""
+        def build_update_summary(spec_delta: Optional[dict], world_model_delta: Optional[dict]) -> str:
+            summary_parts: List[str] = []
+
+            def pluralize(count: int, singular: str) -> str:
+                return f"{count} {singular}" + ("" if count == 1 else "s")
+
+            if spec_delta:
+                constraint_adds = len(spec_delta.get("constraints", {}).get("added", []))
+                goal_adds = len(spec_delta.get("goals", {}).get("added", []))
+                resolution_changed = spec_delta.get("resolution_changed")
+                mode_changed = spec_delta.get("mode_changed")
+
+                if constraint_adds:
+                    summary_parts.append(f"added {pluralize(constraint_adds, 'constraint')}")
+                if goal_adds:
+                    summary_parts.append(f"added {pluralize(goal_adds, 'goal')}")
+                if resolution_changed:
+                    summary_parts.append("adjusted the resolution")
+                if mode_changed:
+                    summary_parts.append("updated the workflow mode")
+
+            if world_model_delta and world_model_delta.get("touched_sections"):
+                summary_parts.append("updated the world model")
+
+            if summary_parts:
+                if len(summary_parts) == 1:
+                    updates_summary = summary_parts[0]
+                elif len(summary_parts) == 2:
+                    updates_summary = " and ".join(summary_parts)
+                else:
+                    updates_summary = ", ".join(summary_parts[:-1]) + f", and {summary_parts[-1]}"
+                summary_text = f"\n\nAll set — {updates_summary}."
+            else:
+                summary_text = "\n\nAll set with those updates."
+
+            summary_text += " Next, I can start outlining the WorldModel or help you explore another aspect—just let me know what you'd like to do."
+            return summary_text
+
         try:
             from crucible.db.repositories import get_chat_session, list_messages, create_message as repo_create_message
             from crucible.db.models import MessageRole
@@ -1954,14 +2262,57 @@ async def generate_architect_reply_stream(
             
             # Build the prompt using guidance agent's logic
             guidance_agent = GuidanceAgent(tools=guidance_service._create_tools())
-            prompt = guidance_agent._build_tool_based_prompt(
-                user_query=user_query,
-                project_id=session.project_id,
-                chat_context=chat_context,
-                tool_descriptions=guidance_agent._describe_tools(),
-                initial_state=project_state
-            )
-            system_prompt = guidance_agent._get_system_prompt_with_tools()
+            
+            # For new project setup, enhance the prompt with project info and future tense instructions
+            is_new_project_setup = (workflow_stage == "setup" and not project_state.get("has_problem_spec", False))
+            
+            if is_new_project_setup:
+                # Get project details for greeting
+                from crucible.db.repositories import get_project
+                project = get_project(db, session.project_id)
+                project_title = project.title if project else "New Project"
+                project_description = project.description if project else None
+                
+                # Enhance the prompt with project info and future tense instructions
+                base_prompt = guidance_agent._build_tool_based_prompt(
+                    user_query=user_query,
+                    project_id=session.project_id,
+                    chat_context=chat_context,
+                    tool_descriptions=guidance_agent._describe_tools(),
+                    initial_state=project_state
+                )
+                
+                # Add special instructions for new project greeting
+                greeting_instructions = f"""
+
+IMPORTANT: This is a new project setup. The user just provided their initial description.
+- Project title: "{project_title}"
+- Project description: "{project_description if project_description else 'User provided initial description'}"
+- The user can change the title/description above by clicking the pencil icon.
+
+Your response should:
+1. Greet them warmly as the Architect
+2. Acknowledge their project idea
+3. Tell them you're CREATING a project called "{project_title}" with description "{project_description if project_description else 'their initial description'}" (mention they can change it above)
+4. Use FUTURE TENSE - say "I'm going to..." or "I'll..." not "I've done..." because the updates will happen next
+5. Tell them what you're GOING TO DO NEXT: analyze their description and add initial goals and constraints to the ProblemSpec
+6. Explain that they'll see working indicators as you do this, and then you'll give them a summary
+7. Suggest next steps after setup is complete
+
+Be concise, friendly, and conversational. Remember: use future tense, not past tense.
+"""
+                
+                prompt = base_prompt + greeting_instructions
+                system_prompt = guidance_agent._get_system_prompt_with_tools()
+            else:
+                prompt = guidance_agent._build_tool_based_prompt(
+                    user_query=user_query,
+                    project_id=session.project_id,
+                    chat_context=chat_context,
+                    tool_descriptions=guidance_agent._describe_tools(),
+                    initial_state=project_state
+                )
+                system_prompt = guidance_agent._get_system_prompt_with_tools()
             
             # Get LLM provider and check if it supports streaming
             llm_provider = get_provider()
@@ -2073,7 +2424,8 @@ async def generate_architect_reply_stream(
                 guidance_type = guidance_service._determine_guidance_type(user_query, workflow_stage, project_state)
                 
                 # Refine ProblemSpec if needed (same logic as non-streaming)
-                if guidance_type in ["spec_refinement", "setup_guidance"] or workflow_stage == "setup":
+                allow_spec_refine = _should_refine_problem_spec(user_query, guidance_type, workflow_stage)
+                if guidance_type in ["spec_refinement", "setup_guidance"] or (workflow_stage == "setup" and allow_spec_refine):
                     try:
                         # Send event indicating we're updating the spec
                         yield f"data: {json.dumps({'type': 'updating', 'what': 'ProblemSpec'})}\n\n"
@@ -2242,6 +2594,11 @@ async def generate_architect_reply_stream(
                 # Tool call audits would be available if we call guidance_service.provide_guidance()
                 # before streaming. For now, streaming endpoint doesn't capture tool call audits.
                 
+                summary_text = build_update_summary(spec_delta, world_model_delta)
+                if summary_text:
+                    full_content += summary_text
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': summary_text})}\n\n"
+                
                 # Create and store the Architect message
                 architect_message = repo_create_message(
                     db,
@@ -2275,7 +2632,8 @@ async def generate_architect_reply_stream(
                 guidance_type = guidance_service._determine_guidance_type(user_query, workflow_stage, project_state)
                 
                 # Refine ProblemSpec if needed
-                if guidance_type in ["spec_refinement", "setup_guidance"] or workflow_stage == "setup":
+                allow_spec_refine = _should_refine_problem_spec(user_query, guidance_type, workflow_stage)
+                if guidance_type in ["spec_refinement", "setup_guidance"] or (workflow_stage == "setup" and allow_spec_refine):
                     try:
                         from crucible.db.repositories import get_problem_spec
                         from datetime import datetime
@@ -2344,6 +2702,11 @@ async def generate_architect_reply_stream(
                     message_metadata["touched_sections"] = list(set(touched_sections))
                 if suggested_actions:
                     message_metadata["suggested_actions"] = suggested_actions
+
+                summary_text = build_update_summary(spec_delta, world_model_delta)
+                if summary_text:
+                    full_content += summary_text
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': summary_text})}\n\n"
                 
                 # Create and store the Architect message
                 architect_message = repo_create_message(
