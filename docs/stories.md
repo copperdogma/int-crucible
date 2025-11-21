@@ -7,8 +7,8 @@ Int Crucible
 ---
 
 ## Suggested Implementation Order (Remaining Stories)
-1. **016 – Run advisor contract and explicit execution control**: Lock down how runs are authorized to avoid hidden/accidental costs before adding more automation and testing.
-2. **008 – Provenance and candidate lineage**: Ensure every candidate and model change is traceable so debugging and feedback have a solid backbone.
+1. DONE:**016 – Run advisor contract and explicit execution control**: Lock down how runs are authorized to avoid hidden/accidental costs before adding more automation and testing.
+2. DONE:**008 – Provenance and candidate lineage**: Ensure every candidate and model change is traceable so debugging and feedback have a solid backbone.
 3. **019 – Operational observability and cost dashboards**: Add run-level metrics and health visibility so both you and AI can see what the pipeline is doing in practice.
 4. **018 – AI-first test pipeline and snapshot-based scenarios**: Build the AI-facing test harness on top of provenance + observability so snapshots and invariants are cheap and reliable.
 5. **010 – Multiple chats and runs per project**: Turn projects into persistent reasoning environments once core runs, provenance, and tests are stable.
@@ -27,7 +27,7 @@ Int Crucible
 | 006      | Implement Evaluators and I-Ranker                 | High     | Done     | /docs/stories/story-006-evaluators-and-i-ranker.md      |
 | 007      | Build minimal chat-first web UI                   | High     | Done     | /docs/stories/story-007-chat-first-ui.md                |
 | 007b     | Implement interactive guidance and onboarding agent | High   | Done     | /docs/stories/story-007b-interactive-guidance-agent.md  |
-| 008      | Implement provenance and candidate lineage        | Medium   | To Do    | /docs/stories/story-008-provenance-and-lineage.md       |
+| 008      | Implement provenance and candidate lineage        | Medium   | Done    | /docs/stories/story-008-provenance-and-lineage.md       |
 | 008b     | Add test tooling and fix run execution issues     | High     | Done     | /docs/stories/story-008b-test-tooling-and-run-fixes.md  |
 | 009      | Implement feedback loop and issue handling        | Medium   | To Do    | /docs/stories/story-009-feedback-and-issues.md          |
 | 010      | Support multiple chats and runs per project       | Medium   | To Do    | /docs/stories/story-010-multi-chat-and-run-history.md   |
