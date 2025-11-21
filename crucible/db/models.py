@@ -3,11 +3,12 @@ Database models for Int Crucible.
 
 These models extend the Kosmos Base to add Crucible-specific domain entities:
 - Project, ChatSession, Message, ProblemSpec, WorldModel
-- Run, Candidate, ScenarioSuite, Evaluation, Issue
+- Run, Candidate, ScenarioSuite, Evaluation, Issue, Snapshot
 """
 
 import enum
 from datetime import datetime
+from typing import Any, Dict, List
 
 # Import Kosmos Base to ensure compatibility
 from kosmos.db.models import Base
@@ -424,4 +425,65 @@ class Issue(Base):
 
     def __repr__(self):
         return f"<Issue {self.id} type={self.type} severity={self.severity}>"
+
+
+class Snapshot(Base):
+    """
+    Snapshot model.
+    
+    Test snapshot capturing system state for regression testing.
+    """
+    __tablename__ = "crucible_snapshots"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    tags = Column(JSON, nullable=True)  # JSON array of tag strings
+    
+    # References
+    project_id = Column(String, ForeignKey("crucible_projects.id"), nullable=False)
+    run_id = Column(String, nullable=True)  # Optional reference to source run
+    
+    # Snapshot data (full copies, not references)
+    snapshot_data = Column(JSON, nullable=False)  # Contains ProblemSpec, WorldModel, run config, optional chat context
+    reference_metrics = Column(JSON, nullable=True)  # Baseline run metrics for comparison
+    invariants = Column(JSON, nullable=True)  # JSON array of invariant definitions
+    
+    # Versioning
+    version = Column(String, nullable=False, default="1.0")
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = relationship("Project", backref="snapshots")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert snapshot to dictionary."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "tags": self.tags or [],
+            "project_id": self.project_id,
+            "run_id": self.run_id,
+            "snapshot_data": self.snapshot_data,
+            "reference_metrics": self.reference_metrics,
+            "invariants": self.invariants or [],
+            "version": self.version,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+    
+    def get_snapshot_data(self) -> Dict[str, Any]:
+        """Get snapshot data."""
+        return self.snapshot_data or {}
+    
+    def get_invariants(self) -> List[Dict[str, Any]]:
+        """Get invariants list."""
+        return self.invariants or []
+    
+    def __repr__(self):
+        return f"<Snapshot {self.id}: {self.name}>"
 

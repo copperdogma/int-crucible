@@ -13,6 +13,99 @@ Int Crucible is a general multi-agent reasoning system that:
 
 The system is domain-agnostic and designed for iterative improvement of complex systems and designs.
 
+## AI-First Development Philosophy
+
+**Critical**: This project operates on an AI-first development model. Understanding and following this philosophy is essential for all AI assistants working on this codebase.
+
+### Role Division
+
+**Human's Role:**
+- Source of requirements and specifications
+- Oversight and high-level direction
+- Acceptance of completed work
+
+**AI's Role:**
+- **Everything else**, including:
+  - Implementation of features
+  - Code quality and testing
+  - Documentation
+  - Bug fixes and optimizations
+  - **Critical: Self-verification of all work**
+
+### Self-Verification Requirement
+
+**MANDATORY**: The AI must **never** report that work is complete or done unless it has:
+
+1. **Tested the implementation** - Verified that the code runs without errors
+2. **Validated against requirements** - Confirmed that the implementation meets the stated requirements
+3. **Checked against story acceptance criteria** - Ensured all acceptance criteria in the relevant user story are satisfied
+4. **Verified integration** - Tested that new code works correctly with existing systems
+5. **Run all relevant checks** - Executed linters, tests, migrations, and other verification steps
+
+**Before presenting any work as complete**, the AI must:
+- Execute the code and verify it works as intended
+- Run tests (unit, integration, or manual verification as appropriate)
+- Check that database migrations apply successfully (if applicable)
+- Verify imports resolve correctly
+- Ensure linting passes
+- Confirm that functionality can be exercised and produces expected results
+- Document the verification steps taken
+
+The AI should not return to the human asking them to verify or test work - verification is the AI's responsibility, not the human's. The human's role is oversight, not execution or verification.
+
+### AI-First Tools and Testing Pipeline
+
+**PRIMARY MISSION**: AI agents must actively use the snapshot testing system and other AI-first tools for verification, debugging, and continuous improvement of the system.
+
+**Snapshot Testing System:**
+- **Use for regression testing** - Create snapshots before changes, test after changes
+- **Use for debugging** - Replay snapshots to reproduce issues and validate fixes
+- **Use for validation** - Run snapshot tests to verify system behavior hasn't regressed
+- **Use for improvement** - Track metrics over time to identify performance trends
+
+**When to Use Snapshot Testing:**
+- Before making significant changes (create baseline snapshots)
+- After implementing features (run snapshot tests to verify no regressions)
+- When debugging issues (replay relevant snapshots to reproduce problems)
+- During refactoring (ensure behavior is preserved)
+- For continuous validation (run snapshot tests regularly)
+
+**Commands:**
+```bash
+# Create snapshot before changes
+crucible snapshot create --project-id <id> --name "Baseline" --tags test
+
+# Run tests after changes
+crucible snapshot test --all
+
+# Replay specific snapshot for debugging
+crucible snapshot replay <snapshot-id>
+```
+
+**AI agents should:**
+- Automatically create snapshots when appropriate
+- Run snapshot tests as part of verification workflows
+- Use snapshot replay to debug issues
+- Monitor test results and address failures proactively
+- Treat snapshot test failures as blocking issues that must be resolved
+
+The snapshot testing system is not optional - it is a core tool for AI agents to verify, debug, and improve the system autonomously.
+
+### Verification Checklist
+
+When completing any task, the AI must verify:
+- ✅ Code compiles/runs without errors
+- ✅ All imports resolve correctly
+- ✅ Linter passes: `ruff check crucible/`
+- ✅ Database migrations apply (if applicable): `alembic upgrade head`
+- ✅ CRUD operations work (if applicable)
+- ✅ New functionality can be exercised via tests or manual verification
+- ✅ Implementation matches requirements and story acceptance criteria
+- ✅ Integration with existing systems works correctly
+- ✅ Snapshot tests pass (if applicable): `crucible snapshot test --all` or relevant snapshots
+
+Only after all verification steps pass should work be presented as complete.
+
 ## Architecture
 
 ### High-Level Structure
@@ -377,6 +470,40 @@ crucible kosmos-test
 curl http://127.0.0.1:8000/health
 ```
 
+### Snapshot Testing
+
+Int Crucible includes an AI-first snapshot testing system for regression testing of non-deterministic LLM-based systems. See `docs/snapshot-testing.md` for complete documentation.
+
+**Quick Start:**
+```bash
+# Create a snapshot from a project
+crucible snapshot create --project-id <id> --name "Baseline" --tags test
+
+# List snapshots
+crucible snapshot list
+
+# Replay a snapshot
+crucible snapshot replay <snapshot-id>
+
+# Run snapshot tests
+crucible snapshot test --all
+```
+
+**API Endpoints:**
+- `POST /snapshots` - Create snapshot
+- `GET /snapshots` - List snapshots (with filters)
+- `GET /snapshots/{id}` - Get snapshot details
+- `DELETE /snapshots/{id}` - Delete snapshot
+- `POST /snapshots/{id}/replay` - Replay snapshot
+- `POST /snapshots/run-tests` - Run snapshot tests
+
+**For AI Agents:**
+- Use JSON output format: `--format json` for CLI, or use API endpoints
+- Snapshots capture ProblemSpec, WorldModel, and run configuration
+- Invariants define expected behaviors (e.g., min_candidates, run_status)
+- Test results include pass/fail status and cost tracking
+- See `docs/snapshot-testing.md` for detailed usage patterns
+
 ## Common Tasks for AI Assistants
 
 ### 1. Understanding the System
@@ -423,13 +550,18 @@ curl http://127.0.0.1:8000/health
 
 ## Current Status
 
-**Completed (Story 001):**
+**Completed:**
 - ✅ Backend structure created
 - ✅ FastAPI application with basic endpoints
 - ✅ CLI interface with test commands
 - ✅ Kosmos integration verified
 - ✅ Configuration management
 - ✅ Database connection
+- ✅ Snapshot testing system (Story 018)
+  - Snapshot creation, storage, retrieval
+  - Snapshot replay with pipeline execution
+  - Invariant validation
+  - Test harness for automated regression testing
 
 **To Be Built (Future Stories):**
 - ProblemSpec Agent

@@ -29,6 +29,7 @@ from crucible.services.ranker_service import RankerService
 from crucible.services.run_service import RunService
 from crucible.services.guidance_service import GuidanceService
 from crucible.services.run_preflight_service import RunPreflightService
+from crucible.services.snapshot_service import SnapshotService
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from crucible.models.run_contracts import RunTriggerSource
@@ -637,6 +638,64 @@ class WorkflowStateResponse(BaseModel):
     run_count: int
     project_title: Optional[str]
     project_description: Optional[str]
+
+
+# Pydantic models for Snapshot API
+class SnapshotCreateRequest(BaseModel):
+    """Request model for snapshot creation."""
+    project_id: str
+    run_id: Optional[str] = None
+    name: str
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    invariants: Optional[List[Dict[str, Any]]] = None
+    include_chat_context: bool = True
+    max_chat_messages: int = 10
+
+
+class SnapshotResponse(BaseModel):
+    """Response model for snapshot."""
+    id: str
+    name: str
+    description: Optional[str]
+    tags: List[str]
+    project_id: str
+    run_id: Optional[str]
+    snapshot_data: Dict[str, Any]
+    reference_metrics: Optional[Dict[str, Any]]
+    invariants: List[Dict[str, Any]]
+    version: str
+    created_at: Optional[str]
+    updated_at: Optional[str]
+
+
+class SnapshotReplayRequest(BaseModel):
+    """Request model for snapshot replay."""
+    phases: str = "full"  # "full", "design", "evaluate"
+    num_candidates: Optional[int] = None
+    num_scenarios: Optional[int] = None
+    reuse_project: bool = False
+
+
+class SnapshotReplayResponse(BaseModel):
+    """Response model for snapshot replay."""
+    replay_run_id: str
+    project_id: str
+    status: str
+    results: Dict[str, Any]
+
+
+class SnapshotTestRequest(BaseModel):
+    """Request model for snapshot test run."""
+    snapshot_ids: Optional[List[str]] = None  # None = all snapshots
+    options: Optional[Dict[str, Any]] = None
+
+
+class SnapshotTestResponse(BaseModel):
+    """Response model for snapshot test run."""
+    summary: Dict[str, Any]
+    results: List[Dict[str, Any]]
+    total_cost_usd: float
 
 
 # Project endpoints
@@ -2165,6 +2224,302 @@ async def execute_full_pipeline(
         raise HTTPException(
             status_code=500,
             detail=f"Error executing full pipeline: {str(e)}"
+        )
+
+
+# Snapshot endpoints
+@app.post("/snapshots", response_model=SnapshotResponse)
+async def create_snapshot(
+    request: SnapshotCreateRequest,
+    db: Session = Depends(get_db)
+) -> SnapshotResponse:
+    """
+    Create a snapshot from a project (and optionally a run).
+    
+    Args:
+        request: Snapshot creation request
+        db: Database session
+        
+    Returns:
+        Created snapshot
+    """
+    try:
+        from crucible.db.repositories import create_snapshot as repo_create_snapshot
+        
+        service = SnapshotService(db)
+        
+        # Capture snapshot data
+        snapshot_data = service.capture_snapshot_data(
+            project_id=request.project_id,
+            run_id=request.run_id,
+            include_chat_context=request.include_chat_context,
+            max_chat_messages=request.max_chat_messages
+        )
+        
+        # Capture reference metrics if run_id provided
+        reference_metrics = None
+        if request.run_id:
+            reference_metrics = service.capture_reference_metrics(request.run_id)
+        
+        # Create snapshot
+        snapshot = repo_create_snapshot(
+            session=db,
+            project_id=request.project_id,
+            run_id=request.run_id,
+            name=request.name,
+            description=request.description,
+            tags=request.tags,
+            invariants=request.invariants,
+            snapshot_data=snapshot_data,
+            reference_metrics=reference_metrics
+        )
+        
+        return SnapshotResponse(
+            id=snapshot.id,
+            name=snapshot.name,
+            description=snapshot.description,
+            tags=snapshot.tags or [],
+            project_id=snapshot.project_id,
+            run_id=snapshot.run_id,
+            snapshot_data=snapshot.snapshot_data,
+            reference_metrics=snapshot.reference_metrics,
+            invariants=snapshot.invariants or [],
+            version=snapshot.version,
+            created_at=snapshot.created_at.isoformat() if snapshot.created_at else None,
+            updated_at=snapshot.updated_at.isoformat() if snapshot.updated_at else None,
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error creating snapshot: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating snapshot: {str(e)}"
+        )
+
+
+@app.get("/snapshots", response_model=List[SnapshotResponse])
+async def list_snapshots(
+    project_id: Optional[str] = Query(None),
+    tags: Optional[str] = Query(None),  # Comma-separated tags
+    name: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+) -> List[SnapshotResponse]:
+    """
+    List snapshots with optional filters.
+    
+    Args:
+        project_id: Filter by project ID
+        tags: Filter by tags (comma-separated)
+        name: Filter by name (partial match)
+        db: Database session
+        
+    Returns:
+        List of snapshots
+    """
+    try:
+        from crucible.db.repositories import list_snapshots as repo_list_snapshots
+        
+        tag_list = [t.strip() for t in tags.split(",")] if tags else None
+        
+        snapshots = repo_list_snapshots(
+            session=db,
+            project_id=project_id,
+            tags=tag_list,
+            name=name
+        )
+        
+        return [
+            SnapshotResponse(
+                id=s.id,
+                name=s.name,
+                description=s.description,
+                tags=s.tags or [],
+                project_id=s.project_id,
+                run_id=s.run_id,
+                snapshot_data=s.snapshot_data,
+                reference_metrics=s.reference_metrics,
+                invariants=s.invariants or [],
+                version=s.version,
+                created_at=s.created_at.isoformat() if s.created_at else None,
+                updated_at=s.updated_at.isoformat() if s.updated_at else None,
+            )
+            for s in snapshots
+        ]
+        
+    except Exception as e:
+        logger.error(f"Error listing snapshots: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing snapshots: {str(e)}"
+        )
+
+
+@app.get("/snapshots/{snapshot_id}", response_model=SnapshotResponse)
+async def get_snapshot(
+    snapshot_id: str,
+    db: Session = Depends(get_db)
+) -> SnapshotResponse:
+    """
+    Get a snapshot by ID.
+    
+    Args:
+        snapshot_id: Snapshot ID
+        db: Database session
+        
+    Returns:
+        Snapshot details
+    """
+    try:
+        from crucible.db.repositories import get_snapshot as repo_get_snapshot
+        
+        snapshot = repo_get_snapshot(db, snapshot_id)
+        if snapshot is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Snapshot not found: {snapshot_id}"
+            )
+        
+        return SnapshotResponse(
+            id=snapshot.id,
+            name=snapshot.name,
+            description=snapshot.description,
+            tags=snapshot.tags or [],
+            project_id=snapshot.project_id,
+            run_id=snapshot.run_id,
+            snapshot_data=snapshot.snapshot_data,
+            reference_metrics=snapshot.reference_metrics,
+            invariants=snapshot.invariants or [],
+            version=snapshot.version,
+            created_at=snapshot.created_at.isoformat() if snapshot.created_at else None,
+            updated_at=snapshot.updated_at.isoformat() if snapshot.updated_at else None,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting snapshot: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting snapshot: {str(e)}"
+        )
+
+
+@app.delete("/snapshots/{snapshot_id}")
+async def delete_snapshot(
+    snapshot_id: str,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Delete a snapshot.
+    
+    Args:
+        snapshot_id: Snapshot ID
+        db: Database session
+        
+    Returns:
+        Success message
+    """
+    try:
+        from crucible.db.repositories import delete_snapshot as repo_delete_snapshot
+        
+        success = repo_delete_snapshot(db, snapshot_id)
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Snapshot not found: {snapshot_id}"
+            )
+        
+        return {"status": "deleted", "snapshot_id": snapshot_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting snapshot: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error deleting snapshot: {str(e)}"
+        )
+
+
+@app.post("/snapshots/{snapshot_id}/replay", response_model=SnapshotReplayResponse)
+async def replay_snapshot(
+    snapshot_id: str,
+    request: SnapshotReplayRequest,
+    db: Session = Depends(get_db)
+) -> SnapshotReplayResponse:
+    """
+    Replay a snapshot by creating a new run and executing the pipeline.
+    
+    Args:
+        snapshot_id: Snapshot ID to replay
+        request: Replay options
+        db: Database session
+        
+    Returns:
+        Replay results
+    """
+    try:
+        service = SnapshotService(db)
+        
+        options = {
+            "reuse_project": request.reuse_project,
+            "phases": request.phases,
+            "num_candidates": request.num_candidates,
+            "num_scenarios": request.num_scenarios,
+        }
+        
+        result = service.replay_snapshot(snapshot_id, options)
+        
+        return SnapshotReplayResponse(**result)
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error replaying snapshot: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error replaying snapshot: {str(e)}"
+        )
+
+
+@app.post("/snapshots/run-tests", response_model=SnapshotTestResponse)
+async def run_snapshot_tests(
+    request: SnapshotTestRequest,
+    db: Session = Depends(get_db)
+) -> SnapshotTestResponse:
+    """
+    Run tests for one or more snapshots.
+    
+    Args:
+        request: Test request with snapshot IDs and options
+        db: Database session
+        
+    Returns:
+        Test results summary and details
+    """
+    try:
+        service = SnapshotService(db)
+        
+        result = service.run_snapshot_tests(
+            snapshot_ids=request.snapshot_ids,
+            options=request.options or {}
+        )
+        
+        return SnapshotTestResponse(**result)
+        
+    except Exception as e:
+        logger.error(f"Error running snapshot tests: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error running snapshot tests: {str(e)}"
         )
 
 

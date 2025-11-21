@@ -29,8 +29,13 @@ from crucible.db.repositories import (
     get_world_model,
     create_run,
     list_projects,
+    get_snapshot,
+    list_snapshots,
+    create_snapshot,
+    delete_snapshot,
 )
 from crucible.db.models import RunMode, Run, RunStatus
+from crucible.services.snapshot_service import SnapshotService
 
 app = typer.Typer(
     name="crucible",
@@ -565,6 +570,456 @@ def test_run(
     except Exception as e:
         console.print(f"[red]✗[/red] Error: {e}")
         console.print_exception()
+        raise typer.Exit(1)
+
+
+# Snapshot commands
+snapshot_app = typer.Typer(help="Snapshot management commands")
+app.add_typer(snapshot_app, name="snapshot")
+
+
+@snapshot_app.command("create")
+def snapshot_create(
+    project_id: str = typer.Option(..., "--project-id", "-p", help="Project ID"),
+    run_id: Optional[str] = typer.Option(None, "--run-id", "-r", help="Optional run ID to capture metrics from"),
+    name: str = typer.Option(..., "--name", "-n", help="Snapshot name (must be unique)"),
+    description: Optional[str] = typer.Option(None, "--description", "-d", help="Snapshot description"),
+    tags: Optional[str] = typer.Option(None, "--tags", "-t", help="Comma-separated tags"),
+    invariants_file: Optional[str] = typer.Option(None, "--invariants-file", help="Path to JSON file with invariants"),
+):
+    """
+    Create a snapshot from a project (and optionally a run).
+    
+    Examples:
+        crucible snapshot create --project-id abc123 --name "My Snapshot" --description "Test snapshot"
+        crucible snapshot create --project-id abc123 --run-id xyz789 --name "Baseline" --tags "test,automated"
+    """
+    try:
+        # Initialize database if needed
+        try:
+            from kosmos.db import init_from_config
+            init_from_config()
+        except Exception:
+            pass  # May already be initialized
+        
+        with get_session() as session:
+            # Parse tags
+            tag_list = [t.strip() for t in tags.split(",")] if tags else None
+            
+            # Load invariants if file provided
+            invariants = None
+            if invariants_file:
+                import json
+                with open(invariants_file, 'r') as f:
+                    invariants = json.load(f)
+            
+            # Create snapshot
+            service = SnapshotService(session)
+            
+            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
+                task = progress.add_task("Capturing snapshot data...", total=None)
+                
+                snapshot_data = service.capture_snapshot_data(
+                    project_id=project_id,
+                    run_id=run_id,
+                    include_chat_context=False,  # Skip chat for CLI
+                    max_chat_messages=0
+                )
+                
+                reference_metrics = None
+                if run_id:
+                    progress.update(task, description="Capturing reference metrics...")
+                    reference_metrics = service.capture_reference_metrics(run_id)
+                
+                progress.update(task, description="Creating snapshot record...")
+                snapshot = create_snapshot(
+                    session=session,
+                    project_id=project_id,
+                    run_id=run_id,
+                    name=name,
+                    description=description,
+                    tags=tag_list,
+                    invariants=invariants,
+                    snapshot_data=snapshot_data,
+                    reference_metrics=reference_metrics
+                )
+            
+            console.print(f"\n[green]✓[/green] Created snapshot: {snapshot.id}")
+            console.print(f"  Name: {snapshot.name}")
+            console.print(f"  Version: {snapshot.version}")
+            console.print(f"  Invariants: {len(snapshot.invariants or [])}")
+            if snapshot.tags:
+                console.print(f"  Tags: {', '.join(snapshot.tags)}")
+            
+    except ValueError as e:
+        console.print(f"[red]✗[/red] Error: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error creating snapshot: {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(1)
+
+
+@snapshot_app.command("list")
+def snapshot_list(
+    project_id: Optional[str] = typer.Option(None, "--project-id", "-p", help="Filter by project ID"),
+    tags: Optional[str] = typer.Option(None, "--tags", "-t", help="Filter by tags (comma-separated)"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Filter by name (partial match)"),
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: table (default) or json"),
+):
+    """
+    List snapshots with optional filters.
+    
+    Examples:
+        crucible snapshot list
+        crucible snapshot list --project-id abc123
+        crucible snapshot list --tags test,automated
+        crucible snapshot list --format json
+    """
+    try:
+        # Initialize database if needed
+        try:
+            from kosmos.db import init_from_config
+            init_from_config()
+        except Exception:
+            pass  # May already be initialized
+        
+        with get_session() as session:
+            tag_list = [t.strip() for t in tags.split(",")] if tags else None
+            
+            snapshots = list_snapshots(
+                session=session,
+                project_id=project_id,
+                tags=tag_list,
+                name=name
+            )
+            
+            if output_format.lower() == "json":
+                import json
+                result = [
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "description": s.description,
+                        "tags": s.tags or [],
+                        "project_id": s.project_id,
+                        "run_id": s.run_id,
+                        "version": s.version,
+                        "created_at": s.created_at.isoformat() if s.created_at else None,
+                    }
+                    for s in snapshots
+                ]
+                console.print(json.dumps(result, indent=2))
+            else:
+                if not snapshots:
+                    console.print("[yellow]No snapshots found[/yellow]")
+                    return
+                
+                table = Table(title="Snapshots")
+                table.add_column("ID", style="cyan")
+                table.add_column("Name", style="green")
+                table.add_column("Project ID", style="blue")
+                table.add_column("Tags", style="yellow")
+                table.add_column("Created", style="dim")
+                
+                for s in snapshots:
+                    tags_str = ", ".join(s.tags or []) if s.tags else "-"
+                    created_str = s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else "-"
+                    table.add_row(
+                        s.id[:8] + "...",
+                        s.name[:40],
+                        s.project_id[:8] + "...",
+                        tags_str[:30],
+                        created_str
+                    )
+                
+                console.print(table)
+                console.print(f"\nFound {len(snapshots)} snapshot(s)")
+                
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error listing snapshots: {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(1)
+
+
+@snapshot_app.command("show")
+def snapshot_show(
+    snapshot_id: str = typer.Argument(..., help="Snapshot ID"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """
+    Show details of a snapshot.
+    
+    Examples:
+        crucible snapshot show abc123
+        crucible snapshot show abc123 --json
+    """
+    try:
+        # Initialize database if needed
+        try:
+            from kosmos.db import init_from_config
+            init_from_config()
+        except Exception:
+            pass  # May already be initialized
+        
+        with get_session() as session:
+            snapshot = get_snapshot(session, snapshot_id)
+            if snapshot is None:
+                console.print(f"[red]✗[/red] Snapshot not found: {snapshot_id}")
+                raise typer.Exit(1)
+            
+            if json_output:
+                import json
+                console.print(json.dumps(snapshot.to_dict(), indent=2))
+            else:
+                console.print(f"\n[bold blue]Snapshot: {snapshot.name}[/bold blue]\n")
+                console.print(f"ID: {snapshot.id}")
+                console.print(f"Description: {snapshot.description or '(none)'}")
+                console.print(f"Project ID: {snapshot.project_id}")
+                console.print(f"Run ID: {snapshot.run_id or '(none)'}")
+                console.print(f"Version: {snapshot.version}")
+                console.print(f"Tags: {', '.join(snapshot.tags or [])}")
+                console.print(f"Created: {snapshot.created_at}")
+                console.print(f"Updated: {snapshot.updated_at}")
+                
+                invariants = snapshot.get_invariants()
+                if invariants:
+                    console.print(f"\n[bold]Invariants ({len(invariants)}):[/bold]")
+                    for inv in invariants:
+                        console.print(f"  - {inv.get('type')}: {inv.get('description', '')}")
+                
+                snapshot_data = snapshot.get_snapshot_data()
+                console.print(f"\n[bold]Snapshot Data:[/bold]")
+                console.print(f"  ProblemSpec: {'✓' if 'problem_spec' in snapshot_data else '✗'}")
+                console.print(f"  WorldModel: {'✓' if 'world_model' in snapshot_data else '✗'}")
+                console.print(f"  Run Config: {'✓' if 'run_config' in snapshot_data else '✗'}")
+                console.print(f"  Chat Context: {'✓' if 'chat_context' in snapshot_data else '✗'}")
+                
+                if snapshot.reference_metrics:
+                    console.print(f"\n[bold]Reference Metrics:[/bold]")
+                    metrics = snapshot.reference_metrics
+                    console.print(f"  Candidates: {metrics.get('candidate_count', 'N/A')}")
+                    console.print(f"  Scenarios: {metrics.get('scenario_count', 'N/A')}")
+                    console.print(f"  Status: {metrics.get('status', 'N/A')}")
+                    if metrics.get('duration_seconds'):
+                        console.print(f"  Duration: {metrics['duration_seconds']:.1f}s")
+                
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error showing snapshot: {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(1)
+
+
+@snapshot_app.command("delete")
+def snapshot_delete(
+    snapshot_id: str = typer.Argument(..., help="Snapshot ID"),
+    confirm: bool = typer.Option(False, "--confirm", help="Skip confirmation prompt"),
+):
+    """
+    Delete a snapshot.
+    
+    Examples:
+        crucible snapshot delete abc123
+        crucible snapshot delete abc123 --confirm
+    """
+    try:
+        # Initialize database if needed
+        try:
+            from kosmos.db import init_from_config
+            init_from_config()
+        except Exception:
+            pass  # May already be initialized
+        
+        with get_session() as session:
+            snapshot = get_snapshot(session, snapshot_id)
+            if snapshot is None:
+                console.print(f"[red]✗[/red] Snapshot not found: {snapshot_id}")
+                raise typer.Exit(1)
+            
+            if not confirm:
+                console.print(f"[yellow]Warning:[/yellow] This will delete snapshot: {snapshot.name}")
+                response = typer.confirm("Are you sure?", default=False)
+                if not response:
+                    console.print("[yellow]Cancelled[/yellow]")
+                    return
+            
+            success = delete_snapshot(session, snapshot_id)
+            if success:
+                console.print(f"[green]✓[/green] Deleted snapshot: {snapshot.name}")
+            else:
+                console.print(f"[red]✗[/red] Failed to delete snapshot")
+                raise typer.Exit(1)
+                
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error deleting snapshot: {e}")
+        raise typer.Exit(1)
+
+
+@snapshot_app.command("replay")
+def snapshot_replay(
+    snapshot_id: str = typer.Argument(..., help="Snapshot ID to replay"),
+    phases: str = typer.Option("full", "--phases", help="Phases to run: full, design, evaluate"),
+    num_candidates: Optional[int] = typer.Option(None, "--num-candidates", "-c", help="Override number of candidates"),
+    num_scenarios: Optional[int] = typer.Option(None, "--num-scenarios", "-s", help="Override number of scenarios"),
+    reuse_project: bool = typer.Option(False, "--reuse-project", help="Reuse existing project instead of creating temp one"),
+):
+    """
+    Replay a snapshot by creating a new run and executing the pipeline.
+    
+    Examples:
+        crucible snapshot replay abc123
+        crucible snapshot replay abc123 --phases design --num-candidates 3
+        crucible snapshot replay abc123 --reuse-project
+    """
+    try:
+        # Initialize database if needed
+        try:
+            from kosmos.db import init_from_config
+            init_from_config()
+        except Exception:
+            pass  # May already be initialized
+        
+        with get_session() as session:
+            service = SnapshotService(session)
+            
+            options = {
+                "reuse_project": reuse_project,
+                "phases": phases,
+                "num_candidates": num_candidates,
+                "num_scenarios": num_scenarios,
+            }
+            
+            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
+                task = progress.add_task("Replaying snapshot...", total=None)
+                
+                result = service.replay_snapshot(snapshot_id, options)
+                progress.update(task, completed=True)
+            
+            console.print(f"\n[green]✓[/green] Snapshot replayed successfully")
+            console.print(f"  Replay Run ID: {result['replay_run_id']}")
+            console.print(f"  Project ID: {result['project_id']}")
+            console.print(f"  Status: {result['status']}")
+            
+    except ValueError as e:
+        console.print(f"[red]✗[/red] Error: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error replaying snapshot: {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(1)
+
+
+@snapshot_app.command("test")
+def snapshot_test(
+    snapshot_ids: Optional[str] = typer.Option(None, "--snapshot-ids", help="Comma-separated snapshot IDs (or use --all)"),
+    all_snapshots: bool = typer.Option(False, "--all", help="Test all snapshots"),
+    max_snapshots: Optional[int] = typer.Option(None, "--max-snapshots", help="Maximum number of snapshots to test"),
+    stop_on_failure: bool = typer.Option(False, "--stop-on-failure", help="Stop on first failure"),
+    cost_limit_usd: Optional[float] = typer.Option(None, "--cost-limit-usd", help="Maximum cost in USD"),
+    output_format: str = typer.Option("table", "--format", "-f", help="Output format: table (default) or json"),
+):
+    """
+    Run snapshot tests and validate invariants.
+    
+    Examples:
+        crucible snapshot test --all
+        crucible snapshot test --snapshot-ids abc123,xyz789
+        crucible snapshot test --all --max-snapshots 5 --cost-limit-usd 10.0
+        crucible snapshot test --all --format json
+    """
+    try:
+        # Initialize database if needed
+        try:
+            from kosmos.db import init_from_config
+            init_from_config()
+        except Exception:
+            pass  # May already be initialized
+        
+        with get_session() as session:
+            service = SnapshotService(session)
+            
+            # Parse snapshot IDs
+            snapshot_id_list = None
+            if snapshot_ids:
+                snapshot_id_list = [s.strip() for s in snapshot_ids.split(",")]
+            elif not all_snapshots:
+                console.print("[red]✗[/red] Must specify --snapshot-ids or --all")
+                raise typer.Exit(1)
+            
+            options = {
+                "max_snapshots": max_snapshots,
+                "stop_on_first_failure": stop_on_failure,
+                "cost_limit_usd": cost_limit_usd,
+                "phases": "full",
+            }
+            
+            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
+                task = progress.add_task("Running snapshot tests...", total=None)
+                
+                result = service.run_snapshot_tests(snapshot_id_list, options)
+                progress.update(task, completed=True)
+            
+            summary = result["summary"]
+            results = result["results"]
+            total_cost = result["total_cost_usd"]
+            
+            if output_format.lower() == "json":
+                import json
+                console.print(json.dumps(result, indent=2))
+            else:
+                # Summary table
+                console.print(f"\n[bold blue]Test Summary[/bold blue]\n")
+                console.print(f"Total: {summary['total']}")
+                console.print(f"[green]Passed: {summary['passed']}[/green]")
+                console.print(f"[red]Failed: {summary['failed']}[/red]")
+                console.print(f"[yellow]Skipped: {summary['skipped']}[/yellow]")
+                console.print(f"Total Cost: ${total_cost:.2f} USD")
+                
+                # Results table
+                if results:
+                    console.print(f"\n[bold blue]Test Results[/bold blue]\n")
+                    table = Table()
+                    table.add_column("Snapshot", style="cyan")
+                    table.add_column("Status", style="green")
+                    table.add_column("Run ID", style="blue")
+                    table.add_column("Invariants", style="yellow")
+                    table.add_column("Cost", style="dim")
+                    
+                    for r in results:
+                        status_style = "green" if r["status"] == "passed" else "red" if r["status"] == "failed" else "yellow"
+                        inv_results = r.get("invariants", [])
+                        passed_inv = sum(1 for inv in inv_results if inv.get("status") == "passed")
+                        total_inv = len(inv_results)
+                        inv_str = f"{passed_inv}/{total_inv}" if total_inv > 0 else "-"
+                        
+                        table.add_row(
+                            r.get("snapshot_name", "Unknown")[:30],
+                            f"[{status_style}]{r['status']}[/{status_style}]",
+                            r.get("replay_run_id", "-")[:8] + "..." if r.get("replay_run_id") else "-",
+                            inv_str,
+                            f"${r.get('cost_usd', 0):.2f}"
+                        )
+                    
+                    console.print(table)
+                    
+                    # Show failed invariants
+                    failed_snapshots = [r for r in results if r["status"] == "failed"]
+                    if failed_snapshots:
+                        console.print(f"\n[bold red]Failed Snapshots:[/bold red]\n")
+                        for r in failed_snapshots:
+                            console.print(f"[red]{r['snapshot_name']}[/red]")
+                            failed_inv = [inv for inv in r.get("invariants", []) if inv.get("status") == "failed"]
+                            for inv in failed_inv:
+                                console.print(f"  ✗ {inv.get('type')}: {inv.get('message', '')}")
+                
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error running snapshot tests: {e}")
+        import traceback
+        traceback.print_exc()
         raise typer.Exit(1)
 
 

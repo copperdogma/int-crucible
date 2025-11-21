@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-01-21] - Story 018: AI-first test pipeline and snapshot-based scenarios
+
+### Added
+- **Story 018: AI-first snapshot testing system** (Complete)
+  - Database schema and models:
+    - Alembic migration `cf03659c04c2_add_snapshots_table.py` creates `crucible_snapshots` table with:
+      - Core fields: `id`, `name` (unique), `description`, `tags` (JSON array)
+      - References: `project_id` (FK), `run_id` (optional)
+      - Snapshot data: `snapshot_data` (JSON - full ProblemSpec, WorldModel, run config), `reference_metrics` (JSON), `invariants` (JSON array)
+      - Versioning: `version` field (default "1.0") for schema evolution
+      - Timestamps: `created_at`, `updated_at`
+      - Indexes on `project_id`, `name`, and `tags` (GIN for PostgreSQL)
+    - `Snapshot` model in `crucible/db/models.py` with helper methods (`to_dict()`, `get_snapshot_data()`, `get_invariants()`)
+    - Repository functions in `crucible/db/repositories.py`: `create_snapshot()`, `get_snapshot()`, `get_snapshot_by_name()`, `list_snapshots()` (with filters), `update_snapshot()`, `delete_snapshot()`
+  - Service layer (`crucible/services/snapshot_service.py`):
+    - `capture_snapshot_data()`: Extracts full ProblemSpec, WorldModel, run config, optional chat context
+    - `capture_reference_metrics()`: Captures baseline run observability data (counts, duration, LLM usage, I-scores)
+    - `restore_snapshot_data()`: Restores ProblemSpec and WorldModel to a project (version-aware, uses raw SQL for schema compatibility)
+    - `replay_snapshot()`: Creates temporary project, restores data, executes pipeline, validates invariants
+    - `validate_invariants()`: Validates 10+ invariant types (min_candidates, run_status, min_top_i_score, no_hard_constraint_violations, max_duration_seconds, min_evaluation_coverage, etc.)
+    - `run_snapshot_tests()`: Test harness for running multiple snapshots with cost tracking and failure handling
+  - API endpoints (`crucible/api/main.py`):
+    - `POST /snapshots` - Create snapshot from project/run
+    - `GET /snapshots` - List snapshots with filters (project_id, tags, name)
+    - `GET /snapshots/{id}` - Get full snapshot details
+    - `DELETE /snapshots/{id}` - Delete snapshot
+    - `POST /snapshots/{id}/replay` - Replay snapshot with options
+    - `POST /snapshots/run-tests` - Run snapshot test suite
+    - All endpoints use Pydantic models for type safety and structured responses
+  - CLI commands (`crucible/cli/main.py`):
+    - `crucible snapshot create` - Create snapshot with options (project-id, run-id, name, description, tags, invariants-file)
+    - `crucible snapshot list` - List snapshots with filtering (table/JSON output)
+    - `crucible snapshot show` - Show snapshot details
+    - `crucible snapshot delete` - Delete snapshot
+    - `crucible snapshot replay` - Replay snapshot with options (phases, num-candidates, num-scenarios, reuse-project)
+    - `crucible snapshot test` - Run snapshot tests (supports --all, --snapshot-ids, --max-snapshots, --stop-on-failure, --cost-limit-usd, --format json)
+    - All commands support `--format json` for AI consumption
+  - Testing:
+    - Unit tests: `tests/unit/db/test_snapshot_repositories.py` (10 tests) - All passing
+    - Integration tests: `tests/integration/test_snapshot_flow.py` (6 tests) - All passing
+    - Manual test script: `scripts/test_snapshot_018.py` for end-to-end verification
+    - Total: 16/16 tests passing
+  - Documentation:
+    - `docs/snapshot-testing.md` - Comprehensive guide with philosophy, usage, invariant types, best practices, AI agent patterns
+    - `AGENTS.md` - Updated with "AI-First Tools and Testing Pipeline" section emphasizing snapshot testing as primary mission
+    - Story work log updated with detailed progress tracking
+
+### Changed
+- `AGENTS.md`: Added section on AI-first snapshot testing system with usage patterns and commands
+- `docs/stories/story-018-ai-first-test-pipeline.md`: Updated with complete work log and implementation status
+
+### Technical Notes
+- Snapshot data capture uses raw SQL with table reflection to handle SQLAlchemy metadata caching issues
+- Invariant validation integrates with existing `verify_run_completeness()` and `get_run_statistics()` from `run_verification.py`
+- Cost tracking uses existing `llm_usage` aggregation from `crucible/utils/llm_usage.py`
+- All snapshot operations are idempotent and create new runs (no side effects on existing data)
+- System ready for immediate use by AI agents and humans for regression testing, debugging, and continuous validation
+
 ## [2025-11-21] - Story 019: Operational observability and cost dashboards
 
 ### Added

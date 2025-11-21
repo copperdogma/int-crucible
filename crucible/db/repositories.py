@@ -19,6 +19,7 @@ from crucible.db.models import (
     Project,
     Run,
     ScenarioSuite,
+    Snapshot,
     WorldModel,
 )
 
@@ -598,4 +599,125 @@ def update_issue(
     session.commit()
     session.refresh(issue)
     return issue
+
+
+# Snapshot operations
+def create_snapshot(
+    session: Session,
+    project_id: str,
+    name: str,
+    description: str | None = None,
+    tags: list[str] | None = None,
+    run_id: str | None = None,
+    snapshot_data: dict | None = None,
+    reference_metrics: dict | None = None,
+    invariants: list[dict] | None = None,
+    version: str = "1.0",
+    snapshot_id: str | None = None
+) -> Snapshot:
+    """Create a new snapshot."""
+    if snapshot_id is None:
+        snapshot_id = str(uuid.uuid4())
+
+    snapshot = Snapshot(
+        id=snapshot_id,
+        project_id=project_id,
+        name=name,
+        description=description,
+        tags=tags or [],
+        run_id=run_id,
+        snapshot_data=snapshot_data or {},
+        reference_metrics=reference_metrics,
+        invariants=invariants or [],
+        version=version
+    )
+    session.add(snapshot)
+    session.commit()
+    session.refresh(snapshot)
+    return snapshot
+
+
+def get_snapshot(session: Session, snapshot_id: str) -> Snapshot | None:
+    """Get a snapshot by ID."""
+    return session.query(Snapshot).filter(Snapshot.id == snapshot_id).first()
+
+
+def get_snapshot_by_name(session: Session, name: str) -> Snapshot | None:
+    """Get a snapshot by name."""
+    return session.query(Snapshot).filter(Snapshot.name == name).first()
+
+
+def list_snapshots(
+    session: Session,
+    project_id: str | None = None,
+    tags: list[str] | None = None,
+    name: str | None = None
+) -> list[Snapshot]:
+    """
+    List snapshots with optional filters.
+    
+    Args:
+        session: Database session
+        project_id: Filter by project ID
+        tags: Filter by tags (snapshot must have all specified tags)
+        name: Filter by name (partial match)
+    
+    Returns:
+        List of snapshots matching filters
+    """
+    query = session.query(Snapshot)
+    
+    if project_id is not None:
+        query = query.filter(Snapshot.project_id == project_id)
+    
+    if name is not None:
+        query = query.filter(Snapshot.name.contains(name))
+    
+    if tags is not None and len(tags) > 0:
+        # For SQLite/PostgreSQL JSON array search
+        # This is a simple implementation; for production, consider using JSON functions
+        for tag in tags:
+            # SQLite JSON array search: tags is a JSON array, we check if tag is in it
+            # Using LIKE for simple matching (not ideal but works for MVP)
+            query = query.filter(
+                Snapshot.tags.contains([tag])  # JSON array contains check
+            )
+    
+    return query.order_by(Snapshot.created_at.desc()).all()
+
+
+def update_snapshot(
+    session: Session,
+    snapshot_id: str,
+    description: str | None = None,
+    tags: list[str] | None = None,
+    invariants: list[dict] | None = None
+) -> Snapshot | None:
+    """Update a snapshot (metadata only; snapshot_data is immutable)."""
+    snapshot = get_snapshot(session, snapshot_id)
+    if snapshot is None:
+        return None
+    
+    if description is not None:
+        snapshot.description = description
+    if tags is not None:
+        snapshot.tags = tags
+    if invariants is not None:
+        snapshot.invariants = invariants
+    
+    snapshot.updated_at = datetime.utcnow()
+    session.commit()
+    session.refresh(snapshot)
+    return snapshot
+
+
+def delete_snapshot(session: Session, snapshot_id: str) -> bool:
+    """Delete a snapshot."""
+    snapshot = get_snapshot(session, snapshot_id)
+    if snapshot is None:
+        return False
+    
+    session.delete(snapshot)
+    session.commit()
+    return True
 
