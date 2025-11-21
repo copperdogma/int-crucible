@@ -8,6 +8,7 @@ interface RunHistoryPanelProps {
   projectId: string;
   onClose: () => void;
   onSelectRun?: (runId: string) => void;
+  onCreateAnalysisChat?: (runId: string) => void;
 }
 
 const STATUS_OPTIONS = [
@@ -18,7 +19,7 @@ const STATUS_OPTIONS = [
   { label: 'Created', value: 'created' },
 ];
 
-export default function RunHistoryPanel({ projectId, onClose, onSelectRun }: RunHistoryPanelProps) {
+export default function RunHistoryPanel({ projectId, onClose, onSelectRun, onCreateAnalysisChat }: RunHistoryPanelProps) {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [limit, setLimit] = useState<number>(20);
   const [offset, setOffset] = useState<number>(0);
@@ -245,14 +246,27 @@ export default function RunHistoryPanel({ projectId, onClose, onSelectRun }: Run
                     : 'n/a'}
                 </p>
               </div>
-              {onSelectRun && (
-                <button
-                  onClick={handleOpenResults}
-                  className="text-xs px-3 py-1 rounded bg-purple-600 text-white hover:bg-purple-700"
-                >
-                  Open in Results
-                </button>
-              )}
+              <div className="flex gap-2">
+                {onSelectRun && (
+                  <button
+                    onClick={handleOpenResults}
+                    className="text-xs px-3 py-1 rounded bg-purple-600 text-white hover:bg-purple-700"
+                  >
+                    Open in Results
+                  </button>
+                )}
+                {onCreateAnalysisChat && selectedRun && (
+                  <button
+                    onClick={() => {
+                      onCreateAnalysisChat(selectedRun.id);
+                      onClose();
+                    }}
+                    className="text-xs px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    Discuss in Chat
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-sm text-gray-700">

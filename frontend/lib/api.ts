@@ -253,11 +253,29 @@ export const chatSessionsApi = {
   create: async (
     projectId: string,
     title?: string,
-    mode: 'setup' | 'analysis' = 'setup'
+    mode: 'setup' | 'analysis' = 'setup',
+    runId?: string,
+    candidateId?: string
   ): Promise<ChatSession> => {
     return apiFetch<ChatSession>('/chat-sessions', {
       method: 'POST',
-      body: JSON.stringify({ project_id: projectId, title, mode }),
+      body: JSON.stringify({ 
+        project_id: projectId, 
+        title, 
+        mode,
+        run_id: runId,
+        candidate_id: candidateId,
+      }),
+    });
+  },
+  update: async (
+    chatSessionId: string,
+    title?: string,
+    mode?: 'setup' | 'analysis'
+  ): Promise<ChatSession> => {
+    return apiFetch<ChatSession>(`/chat-sessions/${chatSessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ title, mode }),
     });
   },
 };

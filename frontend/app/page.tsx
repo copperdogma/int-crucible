@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, Project } from '@/lib/api';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { projectsApi, Project, chatSessionsApi, messagesApi } from '@/lib/api';
 import ChatInterface from '@/components/ChatInterface';
+import ChatSessionSwitcher from '@/components/ChatSessionSwitcher';
 import SpecPanel from '@/components/SpecPanel';
 import RunConfigPanel from '@/components/RunConfigPanel';
 import ResultsView from '@/components/ResultsView';
@@ -24,6 +25,29 @@ export default function Home() {
   const queryClient = useQueryClient();
   const specPanelScrollRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTopRef = useRef(false);
+
+  // Handler to create analysis chat for a run
+  const createAnalysisChatMutation = useMutation({
+    mutationFn: async (runId: string) => {
+      if (!selectedProjectId) throw new Error('No project selected');
+      const chatTitle = `Analysis: Run ${runId.slice(0, 8)}`;
+      const chatSession = await chatSessionsApi.create(
+        selectedProjectId,
+        chatTitle,
+        'analysis',
+        runId
+      );
+      return chatSession;
+    },
+    onSuccess: (chatSession) => {
+      setSelectedChatSessionId(chatSession.id);
+      queryClient.invalidateQueries({ queryKey: ['chatSessions', selectedProjectId] });
+    },
+  });
+
+  const handleCreateAnalysisChat = (runId: string) => {
+    createAnalysisChatMutation.mutate(runId);
+  };
 
   // Prevent browser from restoring scroll position
   useEffect(() => {
@@ -215,6 +239,16 @@ export default function Home() {
         <div className="flex-1 flex overflow-hidden min-h-0">
           {/* Chat interface */}
           <div className="flex-1 flex flex-col min-h-0">
+            {/* Chat session switcher */}
+            {selectedProjectId && (
+              <div className="flex-shrink-0">
+                <ChatSessionSwitcher
+                  projectId={selectedProjectId}
+                  currentChatSessionId={selectedChatSessionId}
+                  onChatSessionChange={setSelectedChatSessionId}
+                />
+              </div>
+            )}
             {/* Workflow progress indicator */}
             <div className="px-4 pt-2 flex-shrink-0">
               <WorkflowProgress projectId={selectedProjectId} />
@@ -288,6 +322,7 @@ export default function Home() {
                 setShowRunHistory(false);
                 setShowResults(true);
               }}
+              onCreateAnalysisChat={handleCreateAnalysisChat}
             />
           </div>
         </div>

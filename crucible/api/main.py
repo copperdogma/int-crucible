@@ -11,9 +11,11 @@ from collections.abc import Generator
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
 import json
 import asyncio
@@ -55,6 +57,15 @@ async def lifespan(app: FastAPI):
         from kosmos.db import init_from_config
         init_from_config()
         logger.info("Kosmos database initialized successfully")
+        
+        # Force Crucible metadata refresh to sync with database schema
+        # This ensures SQLAlchemy sees columns added by migrations
+        try:
+            from crucible.db.session import init_from_config as crucible_init
+            crucible_init()
+            logger.info("Crucible database models initialized and metadata refreshed")
+        except Exception as e:
+            logger.warning(f"Could not refresh Crucible metadata: {e}")
     except Exception as e:
         logger.warning(f"Could not initialize Kosmos database: {e}")
         logger.warning("Some features may not be available")
@@ -83,7 +94,65 @@ app.add_middleware(
     allow_credentials=False,  # Must be False when using allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+# Exception handlers to ensure CORS headers are added to error responses
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Handle HTTP exceptions with CORS headers."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors with CORS headers."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+from sqlalchemy.exc import SQLAlchemyError
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
+    """Handle SQLAlchemy exceptions with CORS headers."""
+    logger.error(f"Database error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Database error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle all other exceptions with CORS headers."""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 
 @app.get("/")
@@ -215,6 +284,12 @@ class ChatSessionCreateRequest(BaseModel):
     candidate_id: Optional[str] = None
 
 
+class ChatSessionUpdateRequest(BaseModel):
+    """Request model for chat session update."""
+    title: Optional[str] = None
+    mode: Optional[str] = None
+
+
 class ChatSessionResponse(BaseModel):
     """Response model for ChatSession."""
     id: str
@@ -272,6 +347,7 @@ class RunResponse(BaseModel):
     ui_trigger_metadata: Optional[dict] = None
     ui_triggered_at: Optional[str] = None
     run_summary_message_id: Optional[str] = None
+    chat_session_id: Optional[str] = None
     status: str
     created_at: Optional[str] = None
     started_at: Optional[str] = None
@@ -326,6 +402,8 @@ def _serialize_dt(value):
 
 def _serialize_run(run) -> RunResponse:
     """Convert SQLAlchemy Run model to RunResponse."""
+    # Handle chat_session_id gracefully - it might not exist in older runs or if column is missing
+    chat_session_id = getattr(run, 'chat_session_id', None)
 
     return RunResponse(
         id=run.id,
@@ -339,6 +417,7 @@ def _serialize_run(run) -> RunResponse:
         ui_trigger_metadata=run.ui_trigger_metadata,
         ui_triggered_at=_serialize_dt(run.ui_triggered_at),
         run_summary_message_id=run.run_summary_message_id,
+        chat_session_id=chat_session_id,
         status=_serialize_enum(run.status),
         created_at=_serialize_dt(run.created_at),
         started_at=_serialize_dt(run.started_at),
@@ -1136,6 +1215,59 @@ async def create_chat_session(
         )
 
 
+@app.put("/chat-sessions/{chat_session_id}", response_model=ChatSessionResponse)
+async def update_chat_session(
+    chat_session_id: str,
+    request: ChatSessionUpdateRequest,
+    db: Session = Depends(get_db)
+) -> ChatSessionResponse:
+    """
+    Update a chat session's title and/or mode.
+    
+    Args:
+        chat_session_id: Chat session ID
+        request: Update request with optional title and mode
+        db: Database session
+        
+    Returns:
+        Updated chat session
+    """
+    try:
+        from crucible.db.repositories import update_chat_session as repo_update_chat_session
+        
+        session = repo_update_chat_session(
+            db,
+            chat_session_id=chat_session_id,
+            title=request.title,
+            mode=request.mode,
+        )
+        
+        if session is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Chat session not found: {chat_session_id}"
+            )
+        
+        return ChatSessionResponse(
+            id=session.id,
+            project_id=session.project_id,
+            title=session.title,
+            mode=session.mode.value if hasattr(session.mode, 'value') else str(session.mode),
+            run_id=session.run_id,
+            candidate_id=session.candidate_id,
+            created_at=session.created_at.isoformat() if session.created_at else None,
+            updated_at=session.updated_at.isoformat() if session.updated_at else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating chat session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating chat session: {str(e)}"
+        )
+
+
 @app.get("/chat-sessions/{chat_session_id}", response_model=ChatSessionResponse)
 async def get_chat_session(
     chat_session_id: str,
@@ -1268,13 +1400,15 @@ async def create_message(
 @app.get("/runs", response_model=List[RunResponse])
 async def list_runs(
     project_id: Optional[str] = None,
+    chat_session_id: Optional[str] = None,
     db: Session = Depends(get_db)
 ) -> List[RunResponse]:
     """
-    List runs, optionally filtered by project.
+    List runs, optionally filtered by project and/or chat session.
     
     Args:
         project_id: Optional project ID filter
+        chat_session_id: Optional chat session ID filter
         db: Database session
         
     Returns:
@@ -1283,7 +1417,7 @@ async def list_runs(
     try:
         from crucible.db.repositories import list_runs as repo_list_runs
         
-        runs = repo_list_runs(db, project_id)
+        runs = repo_list_runs(db, project_id=project_id, chat_session_id=chat_session_id)
         return [_serialize_run(r) for r in runs]
     except Exception as e:
         logger.error(f"Error listing runs: {e}", exc_info=True)
@@ -1296,19 +1430,21 @@ async def list_runs(
 @app.get("/projects/{project_id}/runs", response_model=List[RunResponse])
 async def list_project_runs(
     project_id: str,
+    chat_session_id: Optional[str] = None,
     db: Session = Depends(get_db)
 ) -> List[RunResponse]:
     """
-    List runs for a project.
+    List runs for a project, optionally filtered by chat session.
     
     Args:
         project_id: Project ID
+        chat_session_id: Optional chat session ID filter
         db: Database session
         
     Returns:
         List of runs
     """
-    return await list_runs(project_id=project_id, db=db)
+    return await list_runs(project_id=project_id, chat_session_id=chat_session_id, db=db)
 
 
 @app.get("/projects/{project_id}/runs/summary", response_model=RunSummaryListResponse)
@@ -1317,45 +1453,150 @@ async def get_project_run_summary(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     status: Optional[List[str]] = Query(default=None),
+    chat_session_id: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ) -> RunSummaryListResponse:
     """
     Return a paginated summary of recent runs for a project with observability fields.
+    Optionally filtered by status and/or chat session.
     """
-    query = db.query(Run).filter(Run.project_id == project_id)
+    try:
+        from sqlalchemy import text
+        from crucible.db.models import RunStatus
+        
+        # Use raw SQL to work around SQLAlchemy metadata cache issue
+        # The metadata refresh should fix this, but using raw SQL as a reliable workaround
+        # Build WHERE clause with named parameters for SQLAlchemy 2.0
+        where_clauses = ["project_id = :project_id"]
+        query_params = {"project_id": project_id}
+        param_counter = 1
+        
+        if status:
+            normalized_statuses = []
+            for status_value in status:
+                try:
+                    normalized_statuses.append(RunStatus(status_value))
+                except ValueError:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Invalid status filter: {status_value}",
+                    )
+            if normalized_statuses:
+                status_values = [s.value for s in normalized_statuses]
+                status_placeholders = ",".join([f":status_{i}" for i in range(len(status_values))])
+                where_clauses.append(f"status IN ({status_placeholders})")
+                for i, val in enumerate(status_values):
+                    query_params[f"status_{i}"] = val
+        
+        if chat_session_id is not None:
+            where_clauses.append("chat_session_id = :chat_session_id")
+            query_params["chat_session_id"] = chat_session_id
+        
+        where_sql = " AND ".join(where_clauses)
+        
+        # Count total
+        count_sql = f"SELECT COUNT(*) FROM crucible_runs WHERE {where_sql}"
+        total = db.execute(text(count_sql), query_params).scalar()
+        
+        # Get runs - explicitly list columns including chat_session_id
+        query_params["limit_param"] = limit
+        query_params["offset_param"] = offset
+        select_sql = f"""
+            SELECT id, project_id, mode, config, status, created_at, started_at, completed_at,
+                   recommended_message_id, recommended_config_snapshot, ui_trigger_id,
+                   ui_trigger_source, ui_trigger_metadata, ui_triggered_at, run_summary_message_id,
+                   chat_session_id, duration_seconds, candidate_count, scenario_count, evaluation_count, 
+                   metrics, llm_usage, error_summary
+            FROM crucible_runs
+            WHERE {where_sql}
+            ORDER BY created_at DESC, id DESC
+            LIMIT :limit_param OFFSET :offset_param
+        """
+        
+        rows = db.execute(text(select_sql), query_params).fetchall()
+        
+        # Convert rows to Run-like objects for serialization
+        from datetime import datetime
+        import json
+        
+        class RunProxy:
+            def __init__(self, row_data):
+                self.id = row_data[0]
+                self.project_id = row_data[1]
+                self.mode = row_data[2]
+                self.config = self._parse_json(row_data[3])
+                self.status = row_data[4]
+                # Parse datetime strings to datetime objects if needed
+                self.created_at = self._parse_datetime(row_data[5])
+                self.started_at = self._parse_datetime(row_data[6])
+                self.completed_at = self._parse_datetime(row_data[7])
+                self.recommended_message_id = row_data[8]
+                self.recommended_config_snapshot = self._parse_json(row_data[9])
+                self.ui_trigger_id = row_data[10]
+                self.ui_trigger_source = row_data[11]
+                self.ui_trigger_metadata = self._parse_json(row_data[12])
+                self.ui_triggered_at = self._parse_datetime(row_data[13])
+                self.run_summary_message_id = row_data[14]
+                self.chat_session_id = row_data[15]  # Now included
+                self.duration_seconds = row_data[16]
+                self.candidate_count = row_data[17]
+                self.scenario_count = row_data[18]
+                self.evaluation_count = row_data[19]
+                self.metrics = self._parse_json(row_data[20])
+                self.llm_usage = self._parse_json(row_data[21])
+                self.error_summary = row_data[22]
+            
+            @staticmethod
+            def _parse_datetime(value):
+                """Parse datetime value - handles both datetime objects and ISO format strings."""
+                if value is None:
+                    return None
+                if isinstance(value, datetime):
+                    return value
+                if isinstance(value, str):
+                    try:
+                        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    except (ValueError, AttributeError):
+                        return None
+                return value
+            
+            @staticmethod
+            def _parse_json(value):
+                """Parse JSON value - handles both dict/list objects and JSON strings."""
+                if value is None:
+                    return None
+                if isinstance(value, (dict, list)):
+                    return value
+                if isinstance(value, str):
+                    if value.lower() == 'null':
+                        return None
+                    try:
+                        return json.loads(value)
+                    except (json.JSONDecodeError, ValueError):
+                        return None
+                return value
+        
+        runs = [RunProxy(row) for row in rows]
 
-    if status:
-        normalized_statuses = []
-        for status_value in status:
-            try:
-                normalized_statuses.append(RunStatus(status_value))
-            except ValueError:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Invalid status filter: {status_value}",
-                )
-        if normalized_statuses:
-            query = query.filter(Run.status.in_([s.value for s in normalized_statuses]))
+        has_more = offset + len(runs) < total
+        next_offset = offset + len(runs) if has_more else None
 
-    total = query.count()
-    runs = (
-        query.order_by(Run.created_at.desc(), Run.id.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
-
-    has_more = offset + len(runs) < total
-    next_offset = offset + len(runs) if has_more else None
-
-    return RunSummaryListResponse(
-        runs=[_serialize_run(run) for run in runs],
-        total=total,
-        limit=limit,
-        offset=offset,
-        has_more=has_more,
-        next_offset=next_offset,
-    )
+        return RunSummaryListResponse(
+            runs=[_serialize_run(run) for run in runs],
+            total=total,
+            limit=limit,
+            offset=offset,
+            has_more=has_more,
+            next_offset=next_offset,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting project run summary: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting run summary: {str(e)}"
+        )
 
 
 @app.post("/projects/{project_id}/runs/preflight", response_model=RunPreflightResponse)
@@ -1466,6 +1707,7 @@ async def create_run(
             ui_trigger_source=trigger_source.value if trigger_source else None,
             ui_trigger_metadata=request.ui_trigger_metadata,
             ui_triggered_at=datetime.utcnow(),
+            chat_session_id=request.chat_session_id,
         )
         
         return _serialize_run(run)

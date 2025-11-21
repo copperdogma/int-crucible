@@ -119,6 +119,27 @@ def list_chat_sessions(session: Session, project_id: str | None = None) -> list[
     return query.order_by(ChatSession.created_at.desc()).all()
 
 
+def update_chat_session(
+    session: Session,
+    chat_session_id: str,
+    title: str | None = None,
+    mode: str | None = None,
+) -> ChatSession | None:
+    """Update a chat session's title and/or mode."""
+    chat_session = get_chat_session(session, chat_session_id)
+    if chat_session is None:
+        return None
+    
+    if title is not None:
+        chat_session.title = title
+    if mode is not None:
+        chat_session.mode = mode
+    
+    session.commit()
+    session.refresh(chat_session)
+    return chat_session
+
+
 # Message operations
 def create_message(
     session: Session,
@@ -300,6 +321,7 @@ def create_run(
     ui_trigger_source: str | None = None,
     ui_trigger_metadata: dict | None = None,
     ui_triggered_at: datetime | None = None,
+    chat_session_id: str | None = None,
 ) -> Run:
     """Create a new run."""
     if run_id is None:
@@ -316,6 +338,7 @@ def create_run(
         ui_trigger_source=ui_trigger_source,
         ui_trigger_metadata=ui_trigger_metadata,
         ui_triggered_at=ui_triggered_at,
+        chat_session_id=chat_session_id,
     )
     session.add(run)
     session.commit()
@@ -328,11 +351,17 @@ def get_run(session: Session, run_id: str) -> Run | None:
     return session.query(Run).filter(Run.id == run_id).first()
 
 
-def list_runs(session: Session, project_id: str | None = None) -> list[Run]:
-    """List runs, optionally filtered by project."""
+def list_runs(
+    session: Session, 
+    project_id: str | None = None,
+    chat_session_id: str | None = None
+) -> list[Run]:
+    """List runs, optionally filtered by project and/or chat session."""
     query = session.query(Run)
     if project_id is not None:
         query = query.filter(Run.project_id == project_id)
+    if chat_session_id is not None:
+        query = query.filter(Run.chat_session_id == chat_session_id)
     return query.order_by(Run.created_at.desc()).all()
 
 

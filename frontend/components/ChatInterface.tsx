@@ -218,24 +218,16 @@ export default function ChatInterface({
       }
     }
     
-    // Get or create default chat session for this project
+    // Auto-select first chat session if available, but don't auto-create
+    // Users should explicitly create chats via ChatSessionSwitcher
     if (!chatSessionId && chatSessions && chatSessions.length > 0) {
       // Use the first chat session for this project
       const projectSession = chatSessions.find(s => s.project_id === projectId);
       if (projectSession) {
         onChatSessionChange(projectSession.id);
-      } else {
-        // No session for this project yet, create one
-        chatSessionsApi.create(projectId, 'Main Chat', 'setup').then((session) => {
-          onChatSessionChange(session.id);
-        });
       }
-    } else if (!chatSessionId && chatSessions && chatSessions.length === 0) {
-      // Create a new chat session
-      chatSessionsApi.create(projectId, 'Main Chat', 'setup').then((session) => {
-        onChatSessionChange(session.id);
-      });
     }
+    // Note: We no longer auto-create chats - users should use ChatSessionSwitcher
   }, [chatSessionId, chatSessions, projectId, onChatSessionChange]);
 
   // Fetch messages for current chat session (but NOT during streaming - we use streaming pipeline only)
@@ -536,6 +528,16 @@ export default function ChatInterface({
       {/* Messages area */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Show initial greeting when no project */}
+        {projectId && !chatSessionId && chatSessions && chatSessions.length === 0 && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center max-w-md px-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No chat sessions yet</h3>
+              <p className="text-gray-600 mb-4">
+                Create a chat session using the switcher above to start a conversation.
+              </p>
+            </div>
+          </div>
+        )}
         {showInitialGreeting && (
           <div className="flex justify-start">
               <div className="max-w-[80%] rounded-lg px-4 py-2 bg-green-100 text-green-900">

@@ -257,6 +257,9 @@ class Run(Base):
     ui_trigger_metadata = Column(JSON, nullable=True)
     ui_triggered_at = Column(DateTime, nullable=True)
     run_summary_message_id = Column(String, ForeignKey("crucible_messages.id"), nullable=True)
+    
+    # Optional chat session context
+    chat_session_id = Column(String, ForeignKey("crucible_chat_sessions.id"), nullable=True)
 
     # Status
     status = Column(SQLEnum(RunStatus), default=RunStatus.CREATED)
@@ -277,6 +280,7 @@ class Run(Base):
 
     # Relationships
     project = relationship("Project", back_populates="runs")
+    chat_session = relationship("ChatSession", foreign_keys=[chat_session_id])
     candidates = relationship("Candidate", back_populates="run", cascade="all, delete-orphan")
     scenario_suite = relationship("ScenarioSuite", back_populates="run", uselist=False, cascade="all, delete-orphan")
     evaluations = relationship("Evaluation", back_populates="run", cascade="all, delete-orphan")

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-11-21] - Stories 010 & 020: Multi-chat support and SQLAlchemy metadata cache fix
+
+### Added
+- **Story 010: Multiple chat sessions per project** (Complete)
+  - `ChatSessionSwitcher` component for creating, switching, and managing chat sessions
+  - Inline chat title editing with proper blur handling
+  - Context badges showing run_id or candidate_id associations
+  - "Discuss in Chat" flow from Run History to create analysis chats
+  - Backend API endpoints for chat session updates (`PUT /chat-sessions/{id}`)
+  - Run filtering by `chat_session_id` in all run listing endpoints
+  - Integration tests for multi-chat workflows (`tests/integration/test_multi_chat_workflow.py`)
+- **Story 020: SQLAlchemy metadata cache fix** (Complete)
+  - Automatic metadata refresh in `crucible/db/session.py` to sync table definitions with database schema
+  - Raw SQL workaround in `get_project_run_summary` endpoint using SQLAlchemy 2.0 named parameters
+  - `RunProxy` class with datetime and JSON parsing for raw SQL results
+  - CORS exception handlers for all error types
+
+### Changed
+- **Backend**: Added `chat_session_id` column to `Run` model with foreign key relationship
+  - Migration: `e900a34872ac_add_chat_session_id_to_runs.py`
+  - Updated `create_run` and `list_runs` repository functions to support `chat_session_id`
+  - Modified `RunResponse` and `RunCreateRequest` models to include `chat_session_id`
+- **Frontend**: Enhanced chat interface for multi-chat support
+  - `ChatInterface` now requires explicit chat selection (removed aggressive auto-creation)
+  - `RunHistoryPanel` includes "Discuss in Chat" button for creating analysis chats
+  - `page.tsx` integrates `ChatSessionSwitcher` and handles analysis chat creation
+- **API**: Improved error handling with CORS headers on all responses
+  - Exception handlers for `StarletteHTTPException`, `RequestValidationError`, `SQLAlchemyError`, and general `Exception`
+  - All error responses now include proper CORS headers
+
+### Fixed
+- **Critical**: SQLAlchemy metadata cache issue preventing Run History from loading
+  - Metadata refresh automatically syncs table definitions after migrations
+  - Raw SQL workaround ensures endpoint works even if metadata refresh fails
+  - Fixed SQLAlchemy 2.0 parameter binding (named parameters instead of positional)
+  - Fixed datetime and JSON parsing for raw SQL results
+- **Frontend**: Chat title edit blur issue preventing save button clicks
+  - Added `stopPropagation()` to prevent blur from canceling edit on save click
+
+### Documentation
+- Updated `docs/stories/story-010-multi-chat-and-run-history.md` with completion status and work log
+- Created `docs/stories/story-020-sqlalchemy-metadata-cache-fix.md` documenting the issue and solution
+- Updated `docs/stories.md` to mark both stories as complete
+
 ## [2025-01-21] - Story 018: AI-first test pipeline and snapshot-based scenarios
 
 ### Added
