@@ -54,3 +54,4 @@
 
 **Decisions Made**
 - [Log important decisions here]
+- 2025-11-21: Added Story 017 (Candidate ranking explanations in UI, Medium priority) and Story 019 (Operational observability and cost dashboards, Medium priority) to `docs/stories.md`. Reserved Story 018 for an AI-first test pipeline and snapshot-based scenarios.

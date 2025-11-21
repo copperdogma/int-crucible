@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Story 017: Candidate ranking explanations in UI** (Medium Priority)
+  - Story definition for adding human-readable explanations to candidate rankings
+  - Backend ranking rationale generation with brief explanations and key factors
+  - Frontend display of ranking explanations in Results view and candidate detail modals
+  - Designed to satisfy MVP requirement for "brief, understandable explanation of why top candidates are ranked higher"
+- **Story 018: AI-first test pipeline and snapshot-based scenarios** (Medium Priority)
+  - Story definition for AI-native testing infrastructure
+  - Snapshot-based scenario system for reproducible testing with LLM outputs
+  - AI-accessible test harness with structured invariants and health checks
+  - Snapshot creation and management tools accessible to AI agents
+  - Designed to enable AI agents to reliably test and iterate on Int Crucible itself
+- **Story 019: Operational observability and cost dashboards** (Medium Priority)
+  - Story definition for run-level metrics and operational visibility
+  - Basic dashboards for run health, performance, and cost tracking
+  - Structured logging and metrics suitable for both human and AI consumption
+  - Designed to support resource awareness and transparency requirements
+- **Story implementation order guidance** in `docs/stories.md`
+  - Recommended order: 016 → 008 → 019 → 018 → 010 → 009 → 017
+  - Rationale provided for each story's placement based on dependencies and importance
+
 ## [2025-11-20] - Story 015: Chat-first project creation and streaming pipeline improvements
 
 ### Added
