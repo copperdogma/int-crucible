@@ -14,6 +14,7 @@ export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedChatSessionId, setSelectedChatSessionId] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [runConfigDraft, setRunConfigDraft] = useState<any | null>(null);
   const [showSpecPanel, setShowSpecPanel] = useState(true);
   const [showRunConfig, setShowRunConfig] = useState(false);
   const [showResults, setShowResults] = useState(false);
@@ -215,6 +216,13 @@ export default function Home() {
                 projectId={selectedProjectId}
                 chatSessionId={selectedChatSessionId}
                 onChatSessionChange={setSelectedChatSessionId}
+                onRecommendation={(config) => setRunConfigDraft(config)}
+                onRunSummary={(summary) => {
+                  if (summary?.run_id) {
+                    setActiveRunId(summary.run_id);
+                    setShowResults(true);
+                  }
+                }}
               />
             </div>
           </div>
@@ -248,6 +256,9 @@ export default function Home() {
             </div>
             <RunConfigPanel
               projectId={selectedProjectId!}
+              chatSessionId={selectedChatSessionId}
+              architectConfig={runConfigDraft}
+              onConfigApplied={() => setRunConfigDraft(null)}
               onRunCreated={(runId) => {
                 setActiveRunId(runId);
                 setShowRunConfig(false);

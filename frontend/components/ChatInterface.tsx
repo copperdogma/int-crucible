@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { messagesApi, chatSessionsApi, problemSpecApi, guidanceApi, projectsApi } from '@/lib/api';
-import { Message, GuidanceResponse } from '@/lib/api';
+import type { Message, GuidanceResponse } from '@/lib/api';
 import MessageContent from './MessageContent';
+import RunRecommendationCard from './RunRecommendationCard';
+import RunSummaryCard from './RunSummaryCard';
 
 interface DeltaSummaryProps {
   metadata: Record<string, any>;
@@ -158,6 +160,8 @@ interface ChatInterfaceProps {
   chatSessionId: string | null;
   onChatSessionChange: (chatSessionId: string | null) => void;
   onProjectCreated?: (projectId: string) => void;
+  onRecommendation?: (config: any) => void;
+  onRunSummary?: (summary: any) => void;
 }
 
 export default function ChatInterface({
@@ -165,6 +169,8 @@ export default function ChatInterface({
   chatSessionId,
   onChatSessionChange,
   onProjectCreated,
+  onRecommendation,
+  onRunSummary,
 }: ChatInterfaceProps) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -596,7 +602,23 @@ What are you trying to solve or make? Describe your problem, and I'll create a p
                 </div>
                 <MessageContent content={msg.content} />
                 {msg.role === 'agent' && msg.message_metadata && (
-                  <DeltaSummary metadata={msg.message_metadata} />
+                  <>
+                    <DeltaSummary metadata={msg.message_metadata} />
+                    {msg.message_metadata.recommended_run_config && (
+                      <RunRecommendationCard
+                        recommendation={msg.message_metadata.recommended_run_config}
+                        onUseSettings={() => {
+                          onRecommendation?.(msg.message_metadata.recommended_run_config);
+                        }}
+                      />
+                    )}
+                    {msg.message_metadata.run_summary && (
+                      <RunSummaryCard
+                        summary={msg.message_metadata.run_summary}
+                        onViewResults={() => onRunSummary?.(msg.message_metadata.run_summary)}
+                      />
+                    )}
+                  </>
                 )}
                 {msg.created_at && (
                   <div className="text-xs opacity-70 mt-1">

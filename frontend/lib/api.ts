@@ -63,9 +63,25 @@ export interface Run {
   project_id: string;
   mode: string;
   config?: Record<string, any>;
+  recommended_message_id?: string | null;
+  recommended_config_snapshot?: Record<string, any> | null;
+  ui_trigger_id?: string | null;
+  ui_trigger_source?: string | null;
+  ui_trigger_metadata?: Record<string, any> | null;
+  ui_triggered_at?: string | null;
+  run_summary_message_id?: string | null;
   status: string;
   created_at?: string;
   completed_at?: string;
+}
+
+export interface RunPreflightResponse {
+  ready: boolean;
+  blockers: string[];
+  warnings: string[];
+  normalized_config: Record<string, any>;
+  prerequisites: Record<string, boolean>;
+  notes: string[];
 }
 
 export interface Candidate {
@@ -253,11 +269,48 @@ export const runsApi = {
   create: async (
     projectId: string,
     mode: string = 'full_search',
-    config?: Record<string, any>
+    config?: Record<string, any>,
+    extras?: {
+      chat_session_id?: string | null;
+      recommended_message_id?: string | null;
+      recommended_config_snapshot?: Record<string, any> | null;
+      ui_trigger_id: string;
+      ui_trigger_source?: string;
+      ui_trigger_metadata?: Record<string, any> | null;
+    }
   ): Promise<Run> => {
+    const payload: Record<string, any> = {
+      project_id: projectId,
+      mode,
+      config,
+      ui_trigger_id: extras?.ui_trigger_id,
+      ui_trigger_source: extras?.ui_trigger_source ?? 'run_config_panel',
+      ui_trigger_metadata: extras?.ui_trigger_metadata,
+      chat_session_id: extras?.chat_session_id,
+      recommended_message_id: extras?.recommended_message_id,
+      recommended_config_snapshot: extras?.recommended_config_snapshot,
+    };
+
     return apiFetch<Run>('/runs', {
       method: 'POST',
-      body: JSON.stringify({ project_id: projectId, mode, config }),
+      body: JSON.stringify(payload),
+    });
+  },
+  preflight: async (
+    projectId: string,
+    mode: string,
+    parameters: Record<string, any> | undefined,
+    chatSessionId?: string | null,
+    recommendedMessageId?: string | null
+  ): Promise<RunPreflightResponse> => {
+    return apiFetch<RunPreflightResponse>(`/projects/${projectId}/runs/preflight`, {
+      method: 'POST',
+      body: JSON.stringify({
+        mode,
+        parameters,
+        chat_session_id: chatSessionId,
+        recommended_message_id: recommendedMessageId,
+      }),
     });
   },
   executeFullPipeline: async (

@@ -254,3 +254,38 @@ class TestRunServiceImprovements:
             assert result["timing"]["phase1"] >= 0
             assert result["timing"]["phase2"] >= 0
 
+    def test_execute_full_pipeline_posts_run_summary(self, test_db_session):
+        """Ensure a run summary message is created when pipeline completes."""
+        project = create_project(test_db_session, "Summary Project", "desc")
+        create_problem_spec(test_db_session, project.id, constraints=[], goals=[], resolution="medium", mode="full_search")
+        create_world_model(test_db_session, project.id, model_data={})
+
+        run = create_run(test_db_session, project.id, mode="full_search")
+        service = RunService(test_db_session)
+
+        with patch.object(service, 'execute_design_and_scenario_phase') as mock_design, \
+             patch.object(service, 'execute_evaluate_and_rank_phase') as mock_eval, \
+             patch('crucible.services.run_service.list_chat_sessions') as mock_list_chat_sessions, \
+             patch('crucible.services.run_service.create_message') as mock_create_message:
+
+            mock_design.return_value = {
+                "candidates": {"count": 2},
+                "scenarios": {"count": 2},
+                "status": "completed",
+            }
+            mock_eval.return_value = {
+                "evaluations": {"count": 4},
+                "rankings": {"count": 2, "ranked_candidates": [
+                    {"id": "cand-1", "label": "Candidate 1", "I": 1.23},
+                ]},
+                "status": "completed",
+            }
+            mock_list_chat_sessions.return_value = [MagicMock(id="chat-1")]
+            mock_create_message.return_value = MagicMock(id="msg-123")
+
+            service.execute_full_pipeline(run.id, num_candidates=2, num_scenarios=2)
+
+            assert mock_create_message.called
+            updated_run = get_run(test_db_session, run.id)
+            assert updated_run.run_summary_message_id == "msg-123"
+

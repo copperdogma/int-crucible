@@ -36,7 +36,7 @@ Int Crucible
 | 013      | Spec/world-model deltas and live highlighting     | High     | Done     | /docs/stories/story-013-spec-deltas-and-highlighting.md |
 | 014      | Streaming architect responses and typing indicators | High   | Done     | /docs/stories/story-014-streaming-and-typing-indicators.md |
 | 015      | Chat-first project creation and selection         | High     | Done     | /docs/stories/story-015-chat-first-project-creation.md  |
-| 016      | Run advisor contract and explicit execution control | High   | To Do    | /docs/stories/story-016-run-advisor-contract.md         |
+| 016      | Run advisor contract and explicit execution control | High   | Done    | /docs/stories/story-016-run-advisor-contract.md         |
 | 017      | Candidate ranking explanations in UI              | Medium   | To Do    | /docs/stories/story-017-candidate-ranking-explanations.md |
 | 018      | AI-first test pipeline and snapshot-based scenarios | Medium | To Do    | /docs/stories/story-018-ai-first-test-pipeline.md       |
 | 019      | Operational observability and cost dashboards     | Medium   | To Do    | /docs/stories/story-019-operational-observability-and-cost-dashboards.md |

@@ -8,6 +8,7 @@ with Kosmos for agent orchestration and infrastructure.
 import logging
 from contextlib import asynccontextmanager
 from collections.abc import Generator
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends
@@ -27,7 +28,9 @@ from crucible.services.evaluator_service import EvaluatorService
 from crucible.services.ranker_service import RankerService
 from crucible.services.run_service import RunService
 from crucible.services.guidance_service import GuidanceService
+from crucible.services.run_preflight_service import RunPreflightService
 from sqlalchemy.orm import Session
+from crucible.models.run_contracts import RunTriggerSource
 
 # Initialize logging
 logging.basicConfig(
@@ -244,6 +247,12 @@ class RunCreateRequest(BaseModel):
     project_id: str
     mode: str = "full_search"
     config: Optional[dict] = None
+    chat_session_id: Optional[str] = None
+    recommended_message_id: Optional[str] = None
+    recommended_config_snapshot: Optional[dict] = None
+    ui_trigger_id: str
+    ui_trigger_source: RunTriggerSource = RunTriggerSource.RUN_CONFIG_PANEL
+    ui_trigger_metadata: Optional[dict] = None
 
 
 class RunResponse(BaseModel):
@@ -252,9 +261,62 @@ class RunResponse(BaseModel):
     project_id: str
     mode: str
     config: Optional[dict] = None
+    recommended_message_id: Optional[str] = None
+    recommended_config_snapshot: Optional[dict] = None
+    ui_trigger_id: Optional[str] = None
+    ui_trigger_source: Optional[str] = None
+    ui_trigger_metadata: Optional[dict] = None
+    ui_triggered_at: Optional[str] = None
+    run_summary_message_id: Optional[str] = None
     status: str
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
+
+
+class RunPreflightRequest(BaseModel):
+    """Request model for run preflight validation."""
+    mode: str = "full_search"
+    parameters: Optional[dict] = None
+    chat_session_id: Optional[str] = None
+    recommended_message_id: Optional[str] = None
+
+
+class RunPreflightResponse(BaseModel):
+    """Response model for run preflight validation."""
+    ready: bool
+    blockers: List[str]
+    warnings: List[str]
+    normalized_config: Dict[str, Any]
+    prerequisites: Dict[str, bool]
+    notes: List[str]
+
+
+def _serialize_run(run) -> RunResponse:
+    """Convert SQLAlchemy Run model to RunResponse."""
+    def _serialize_enum(value):
+        if hasattr(value, "value"):
+            return value.value
+        return value
+
+    def _serialize_dt(value):
+        return value.isoformat() if value else None
+
+    return RunResponse(
+        id=run.id,
+        project_id=run.project_id,
+        mode=_serialize_enum(run.mode),
+        config=run.config,
+        recommended_message_id=run.recommended_message_id,
+        recommended_config_snapshot=run.recommended_config_snapshot,
+        ui_trigger_id=run.ui_trigger_id,
+        ui_trigger_source=_serialize_enum(run.ui_trigger_source),
+        ui_trigger_metadata=run.ui_trigger_metadata,
+        ui_triggered_at=_serialize_dt(run.ui_triggered_at),
+        run_summary_message_id=run.run_summary_message_id,
+        status=_serialize_enum(run.status),
+        created_at=_serialize_dt(run.created_at),
+        completed_at=_serialize_dt(run.completed_at),
+    )
 
 
 class CandidateResponse(BaseModel):
@@ -1033,18 +1095,7 @@ async def list_runs(
         from crucible.db.repositories import list_runs as repo_list_runs
         
         runs = repo_list_runs(db, project_id)
-        return [
-            RunResponse(
-                id=r.id,
-                project_id=r.project_id,
-                mode=r.mode,
-                config=r.config,
-                status=r.status.value if hasattr(r.status, 'value') else str(r.status),
-                created_at=r.created_at.isoformat() if r.created_at else None,
-                completed_at=r.completed_at.isoformat() if r.completed_at else None,
-            )
-            for r in runs
-        ]
+        return [_serialize_run(r) for r in runs]
     except Exception as e:
         logger.error(f"Error listing runs: {e}", exc_info=True)
         raise HTTPException(
@@ -1071,6 +1122,31 @@ async def list_project_runs(
     return await list_runs(project_id=project_id, db=db)
 
 
+@app.post("/projects/{project_id}/runs/preflight", response_model=RunPreflightResponse)
+async def preflight_run(
+    project_id: str,
+    request: RunPreflightRequest,
+    db: Session = Depends(get_db)
+) -> RunPreflightResponse:
+    """
+    Validate whether a run configuration is ready to execute.
+    """
+    try:
+        service = RunPreflightService(db)
+        result = service.preflight(
+            project_id=project_id,
+            mode=request.mode,
+            parameters=request.parameters,
+        )
+        return RunPreflightResponse(**result.to_dict())
+    except Exception as e:
+        logger.error(f"Error during run preflight for project {project_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error validating run configuration: {str(e)}"
+        )
+
+
 @app.post("/runs", response_model=RunResponse)
 async def create_run(
     request: RunCreateRequest,
@@ -1087,24 +1163,76 @@ async def create_run(
         Created run
     """
     try:
-        from crucible.db.repositories import create_run as repo_create_run
-        
+        from crucible.db.repositories import (
+            create_run as repo_create_run,
+            get_chat_session,
+            get_message as repo_get_message,
+        )
+
+        if not request.ui_trigger_id:
+            raise HTTPException(
+                status_code=422,
+                detail="ui_trigger_id is required to create a run."
+            )
+
+        trigger_source = request.ui_trigger_source
+        if isinstance(trigger_source, str):
+            try:
+                trigger_source = RunTriggerSource(trigger_source)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid ui_trigger_source: {request.ui_trigger_source}"
+                )
+
+        if request.chat_session_id:
+            chat_session = get_chat_session(db, request.chat_session_id)
+            if chat_session is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Chat session not found: {request.chat_session_id}"
+                )
+            if chat_session.project_id != request.project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Chat session does not belong to the specified project."
+                )
+
+        if request.recommended_message_id:
+            message = repo_get_message(db, request.recommended_message_id)
+            if message is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Recommended message not found: {request.recommended_message_id}"
+                )
+            message_project_id = (
+                message.chat_session.project_id if message.chat_session else None
+            )
+            if message_project_id and message_project_id != request.project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Recommended message does not belong to the specified project."
+                )
+            if request.chat_session_id and message.chat_session_id != request.chat_session_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Recommended message does not belong to the provided chat session."
+                )
+
         run = repo_create_run(
             db,
             project_id=request.project_id,
             mode=request.mode,
-            config=request.config
+            config=request.config,
+            recommended_message_id=request.recommended_message_id,
+            recommended_config_snapshot=request.recommended_config_snapshot,
+            ui_trigger_id=request.ui_trigger_id,
+            ui_trigger_source=trigger_source.value if trigger_source else None,
+            ui_trigger_metadata=request.ui_trigger_metadata,
+            ui_triggered_at=datetime.utcnow(),
         )
         
-        return RunResponse(
-            id=run.id,
-            project_id=run.project_id,
-            mode=run.mode,
-            config=run.config,
-            status=run.status.value if hasattr(run.status, 'value') else str(run.status),
-            created_at=run.created_at.isoformat() if run.created_at else None,
-            completed_at=run.completed_at.isoformat() if run.completed_at else None,
-        )
+        return _serialize_run(run)
     except Exception as e:
         logger.error(f"Error creating run: {e}", exc_info=True)
         raise HTTPException(
@@ -1138,15 +1266,7 @@ async def get_run(
                 detail=f"Run not found: {run_id}"
             )
         
-        return RunResponse(
-            id=run.id,
-            project_id=run.project_id,
-            mode=run.mode,
-            config=run.config,
-            status=run.status.value if hasattr(run.status, 'value') else str(run.status),
-            created_at=run.created_at.isoformat() if run.created_at else None,
-            completed_at=run.completed_at.isoformat() if run.completed_at else None,
-        )
+        return _serialize_run(run)
     except HTTPException:
         raise
     except Exception as e:
@@ -2045,6 +2165,9 @@ async def generate_architect_reply(
         # Add suggested actions to metadata if present
         if guidance_result.get("suggested_actions"):
             message_metadata["suggested_actions"] = guidance_result["suggested_actions"]
+
+        if guidance_result.get("recommended_run_config"):
+            message_metadata["recommended_run_config"] = guidance_result["recommended_run_config"]
         
         # Add tool call audits to metadata if present (for provenance and analysis)
         if guidance_result.get("tool_call_audits"):
@@ -2588,6 +2711,19 @@ Be concise, friendly, and conversational. Remember: use future tense, not past t
                     message_metadata["touched_sections"] = list(set(touched_sections))
                 if suggested_actions:
                     message_metadata["suggested_actions"] = suggested_actions
+
+                if guidance_type == "run_recommendation":
+                    recommendation = guidance_service._build_run_recommendation(
+                        project_id=session.project_id,
+                        chat_session_id=chat_session_id,
+                        mode=project_state.get("mode", "full_search") if isinstance(project_state, dict) else "full_search",
+                    )
+                    if recommendation:
+                        message_metadata["recommended_run_config"] = recommendation.to_dict()
+                        reminder = "Use the Run panel (Run button) to execute—I'm only recommending settings."
+                        if reminder not in suggested_actions:
+                            suggested_actions.append(reminder)
+                            message_metadata["suggested_actions"] = suggested_actions
                 
                 # Note: tool_call_audits are added when using GuidanceService,
                 # but streaming endpoint doesn't use GuidanceService directly.
@@ -2702,6 +2838,19 @@ Be concise, friendly, and conversational. Remember: use future tense, not past t
                     message_metadata["touched_sections"] = list(set(touched_sections))
                 if suggested_actions:
                     message_metadata["suggested_actions"] = suggested_actions
+
+                if guidance_type == "run_recommendation":
+                    recommendation = guidance_service._build_run_recommendation(
+                        project_id=session.project_id,
+                        chat_session_id=chat_session_id,
+                        mode=project_state.get("mode", "full_search") if isinstance(project_state, dict) else "full_search",
+                    )
+                    if recommendation:
+                        message_metadata["recommended_run_config"] = recommendation.to_dict()
+                        reminder = "Use the Run panel (Run button) to execute—I'm only recommending settings."
+                        if reminder not in suggested_actions:
+                            suggested_actions.append(reminder)
+                            message_metadata["suggested_actions"] = suggested_actions
 
                 summary_text = build_update_summary(spec_delta, world_model_delta)
                 if summary_text:

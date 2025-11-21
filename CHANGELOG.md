@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-11-21] - Story 016: Run advisor contract and explicit execution control
+
+### Added
+- **Story 016: Run advisor contract and explicit execution control** (Complete)
+  - Run audit metadata and provenance tracking:
+    - Database migration adds audit columns to `crucible_runs`: `recommended_message_id`, `recommended_config_snapshot`, `ui_trigger_id`, `ui_trigger_source`, `ui_trigger_metadata`, `ui_triggered_at`, `run_summary_message_id`
+    - Shared contract definitions in `crucible/models/run_contracts.py` (RunTriggerSource enum, RecommendedRunConfig, RunSummary, RunPreflightResponse dataclasses)
+    - Full audit trail enables reconstructing which Architect message recommended a run, which UI action triggered it, and which summary message was posted
+  - Architect run recommendations:
+    - GuidanceService detects run-intent queries and generates structured `recommended_run_config` metadata
+    - Recommendations include: mode, candidate/scenario counts, budget estimates, prerequisite checklist, rationale, blocker status
+    - Architect explicitly states it cannot start runs directly and directs users to the Run Config panel
+    - Recommendations stored in message metadata and linked to runs via `recommended_message_id`
+  - Preflight validation:
+    - New `RunPreflightService` validates run configurations before execution
+    - Checks prerequisites (ProblemSpec, WorldModel, sufficient candidates)
+    - Returns structured blockers and warnings for UI display
+    - New API endpoint `POST /projects/{project_id}/runs/preflight` for UI validation
+    - GuidanceService reuses preflight logic to provide accurate chat guidance
+  - Explicit run execution control:
+    - `/runs` API now requires `ui_trigger_id` and `ui_trigger_source` (no runs without explicit UI action)
+    - Run Config panel generates trigger IDs and sends audit metadata on run creation
+    - Preflight validation gates the "Start Run" button (disabled until prerequisites met)
+    - No code path allows chat-only API calls to create/execute runs
+  - Post-run summaries:
+    - RunService automatically posts Architect summary messages after pipeline completion
+    - Summary messages include: run ID, mode, counts, top candidates with I-scores, duration
+    - Summary messages linked to runs via `run_summary_message_id`
+    - Chat UI displays summary cards with "View results" buttons for easy navigation
+  - Frontend UI components:
+    - `RunRecommendationCard.tsx`: Displays Architect run recommendations with mode, parameters, blockers, and "Use these settings" CTA
+    - `RunSummaryCard.tsx`: Displays post-run summaries with top candidates and results link
+    - `RunConfigPanel.tsx`: Enhanced to accept architect recommendations, prefill fields, show blockers/warnings, and gate Run button on preflight validation
+    - Shared state management between ChatInterface and RunConfigPanel for recommendation flow
+  - Comprehensive testing:
+    - Unit tests for `RunPreflightService` (blockers, warnings, prerequisite handling)
+    - Unit tests for `RunService` improvements (post-run summaries, prerequisite failures)
+    - Manual browser QA verified end-to-end flow: recommendation → preflight → execution → summary
+    - All acceptance criteria validated in live UI
+
+### Changed
+- `/runs` API endpoints now require `ui_trigger_id` and `ui_trigger_source` for audit trail
+- GuidanceService enhanced to emit structured run recommendations with blocker detection
+- RunService automatically generates post-run summary messages with metadata linking
+- ChatInterface renders new recommendation and summary cards for better UX
+- RunConfigPanel integrates with preflight validation and architect recommendations
+
+### Fixed
+- SQLite migration compatibility (conditional foreign key creation for non-SQLite databases)
+- Column existence checks prevent duplicate column errors during migration
+- Run creation now properly captures and persists audit metadata
+
 ### Added
 - **Story 017: Candidate ranking explanations in UI** (Medium Priority)
   - Story definition for adding human-readable explanations to candidate rankings

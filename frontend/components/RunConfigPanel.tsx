@@ -1,18 +1,38 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { runsApi, problemSpecApi, worldModelApi } from '@/lib/api';
+import { runsApi, problemSpecApi, worldModelApi, RunPreflightResponse } from '@/lib/api';
 
 interface RunConfigPanelProps {
   projectId: string;
+  chatSessionId: string | null;
+  architectConfig?: any | null;
+  onConfigApplied?: () => void;
   onRunCreated: (runId: string) => void;
 }
 
-export default function RunConfigPanel({ projectId, onRunCreated }: RunConfigPanelProps) {
+const generateTriggerId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `ui-${Math.random().toString(36).slice(2)}`;
+};
+
+export default function RunConfigPanel({
+  projectId,
+  chatSessionId,
+  architectConfig,
+  onConfigApplied,
+  onRunCreated,
+}: RunConfigPanelProps) {
   const [mode, setMode] = useState<'full_search' | 'eval_only' | 'seeded'>('full_search');
   const [numCandidates, setNumCandidates] = useState(5);
   const [numScenarios, setNumScenarios] = useState(8);
+  const [activeRecommendationId, setActiveRecommendationId] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<RunPreflightResponse | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
 
   // Check if ProblemSpec and WorldModel exist
   const { data: problemSpec } = useQuery({
@@ -43,12 +63,86 @@ export default function RunConfigPanel({ projectId, onRunCreated }: RunConfigPan
   const hasWorldModel = !!worldModel;
   const canRun = hasProblemSpec && hasWorldModel;
 
+  useEffect(() => {
+    if (!architectConfig) return;
+    if (architectConfig.recommendation_id === activeRecommendationId) return;
+
+    if (architectConfig.mode) {
+      setMode(architectConfig.mode);
+    }
+    const params = architectConfig.parameters || {};
+    if (typeof params.num_candidates === 'number') {
+      setNumCandidates(params.num_candidates);
+    }
+    if (typeof params.num_scenarios === 'number') {
+      setNumScenarios(params.num_scenarios);
+    }
+    setActiveRecommendationId(architectConfig.recommendation_id || null);
+    onConfigApplied?.();
+  }, [architectConfig, activeRecommendationId, onConfigApplied]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function runPreflight() {
+      if (!projectId) return;
+      setPreflightLoading(true);
+      setPreflightError(null);
+      try {
+        const response = await runsApi.preflight(
+          projectId,
+          mode,
+          {
+            num_candidates: numCandidates,
+            num_scenarios: numScenarios,
+          },
+          chatSessionId ?? undefined,
+          architectConfig?.source_message_id ?? architectConfig?.recommended_message_id ?? architectConfig?.message_id
+        );
+        if (!cancelled) {
+          setPreflight(response);
+        }
+      } catch (error) {
+        console.error('Run preflight failed:', error);
+        if (!cancelled) {
+          setPreflight(null);
+          setPreflightError(error instanceof Error ? error.message : 'Unknown error');
+        }
+      } finally {
+        if (!cancelled) {
+          setPreflightLoading(false);
+        }
+      }
+    }
+    runPreflight();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, chatSessionId, mode, numCandidates, numScenarios, architectConfig?.recommendation_id]);
+
+  const isPreflightReady = preflight?.ready ?? false;
+  const blockers = preflight?.blockers ?? [];
+  const warnings = preflight?.warnings ?? [];
+
   const createRunMutation = useMutation({
     mutationFn: async () => {
-      const run = await runsApi.create(projectId, mode, {
-        num_candidates: numCandidates,
-        num_scenarios: numScenarios,
-      });
+      const run = await runsApi.create(
+        projectId,
+        mode,
+        {
+          num_candidates: numCandidates,
+          num_scenarios: numScenarios,
+        },
+        {
+          chat_session_id: chatSessionId ?? undefined,
+          recommended_message_id: architectConfig?.source_message_id ?? architectConfig?.recommended_message_id,
+          recommended_config_snapshot: architectConfig ?? undefined,
+          ui_trigger_id: generateTriggerId(),
+          ui_trigger_source: 'run_config_panel',
+          ui_trigger_metadata: {
+            matched_recommendation: activeRecommendationId,
+          },
+        }
+      );
       return run;
     },
     onSuccess: async (run) => {
@@ -74,11 +168,24 @@ export default function RunConfigPanel({ projectId, onRunCreated }: RunConfigPan
 
   const handleStartRun = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPreflightReady) {
+      return;
+    }
     createRunMutation.mutate();
   };
 
+  const recommendationBanner = useMemo(() => {
+    if (!activeRecommendationId) return null;
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
+        Using Architect recommendation ({activeRecommendationId.slice(0, 8)}…). Adjust fields if you need tweaks.
+      </div>
+    );
+  }, [activeRecommendationId]);
+
   return (
     <form onSubmit={handleStartRun} className="space-y-6">
+      {recommendationBanner}
       {/* Prerequisites check */}
       {!canRun && (
         <div className="bg-yellow-50 border border-yellow-200 rounded p-4 mb-4">
@@ -147,13 +254,46 @@ export default function RunConfigPanel({ projectId, onRunCreated }: RunConfigPan
       <div className="flex gap-3">
         <button
           type="submit"
-          disabled={createRunMutation.isPending || !canRun}
+          disabled={
+            createRunMutation.isPending ||
+            !canRun ||
+            preflightLoading ||
+            !isPreflightReady
+          }
           className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           title={!canRun ? 'Problem Specification and World Model are required' : undefined}
         >
-          {createRunMutation.isPending ? 'Starting Run...' : 'Start Run'}
+          {createRunMutation.isPending ? 'Starting Run...' : preflightLoading ? 'Validating...' : 'Start Run'}
         </button>
       </div>
+
+      {preflightError && (
+        <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+          Preflight failed: {preflightError}
+        </div>
+      )}
+
+      {blockers.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+          <div className="font-semibold mb-1">Blockers</div>
+          <ul className="list-disc list-inside">
+            {blockers.map((blocker) => (
+              <li key={blocker}>{blocker}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm text-yellow-800">
+          <div className="font-semibold mb-1">Warnings</div>
+          <ul className="list-disc list-inside">
+            {warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {createRunMutation.isError && (
         <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">

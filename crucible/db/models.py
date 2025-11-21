@@ -15,6 +15,8 @@ from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import relationship
 
+from crucible.models.run_contracts import RunTriggerSource
+
 
 # Enums
 class ChatSessionMode(str, enum.Enum):
@@ -244,6 +246,13 @@ class Run(Base):
     # Execution configuration
     mode = Column(SQLEnum(RunMode), nullable=False)
     config = Column(JSON, nullable=True)  # Budget, options, etc.
+    recommended_message_id = Column(String, ForeignKey("crucible_messages.id"), nullable=True)
+    recommended_config_snapshot = Column(JSON, nullable=True)
+    ui_trigger_id = Column(String, nullable=True)
+    ui_trigger_source = Column(SQLEnum(RunTriggerSource), nullable=True)
+    ui_trigger_metadata = Column(JSON, nullable=True)
+    ui_triggered_at = Column(DateTime, nullable=True)
+    run_summary_message_id = Column(String, ForeignKey("crucible_messages.id"), nullable=True)
 
     # Status
     status = Column(SQLEnum(RunStatus), default=RunStatus.CREATED)
@@ -258,6 +267,16 @@ class Run(Base):
     candidates = relationship("Candidate", back_populates="run", cascade="all, delete-orphan")
     scenario_suite = relationship("ScenarioSuite", back_populates="run", uselist=False, cascade="all, delete-orphan")
     evaluations = relationship("Evaluation", back_populates="run", cascade="all, delete-orphan")
+    recommended_message = relationship(
+        "Message",
+        primaryjoin="Run.recommended_message_id==Message.id",
+        viewonly=True,
+    )
+    run_summary_message = relationship(
+        "Message",
+        primaryjoin="Run.run_summary_message_id==Message.id",
+        viewonly=True,
+    )
 
     def __repr__(self):
         return f"<Run {self.id} status={self.status}>"

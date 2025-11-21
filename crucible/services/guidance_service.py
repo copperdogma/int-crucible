@@ -6,6 +6,7 @@ and project state detection.
 """
 
 import logging
+from datetime import datetime
 from typing import Dict, Any, Optional, List, Callable
 
 from sqlalchemy.orm import Session
@@ -19,6 +20,12 @@ from crucible.db.repositories import (
     list_messages,
     get_chat_session,
 )
+from crucible.models.run_contracts import (
+    RecommendedRunConfig,
+    RunRecommendationParameters,
+    RunRecommendationStatus,
+)
+from crucible.services.run_preflight_service import RunPreflightService
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +228,19 @@ class GuidanceService:
         # Add structured metadata for conversational logging
         result["workflow_stage"] = workflow_stage
         result["guidance_type"] = self._determine_guidance_type(user_query, workflow_stage, project_state)
+
+        if result.get("guidance_type") == "run_recommendation":
+            recommendation = self._build_run_recommendation(
+                project_id=project_id,
+                chat_session_id=chat_session_id,
+                mode=project_state.get("mode", "full_search") if isinstance(project_state, dict) else "full_search",
+            )
+            if recommendation:
+                result["recommended_run_config"] = recommendation.to_dict()
+                reminder = "Use the Run panel (Run button) to execute—I'm only recommending settings."
+                suggested_actions = result.setdefault("suggested_actions", [])
+                if reminder not in suggested_actions:
+                    suggested_actions.append(reminder)
         
         return result
 
@@ -314,4 +334,72 @@ class GuidanceService:
         
         # Default to contextual guidance
         return "contextual_guidance"
+
+    def _build_run_recommendation(
+        self,
+        project_id: str,
+        chat_session_id: Optional[str],
+        mode: Optional[str] = "full_search",
+    ) -> Optional[RecommendedRunConfig]:
+        """Construct a structured run recommendation using preflight validation."""
+        try:
+            preflight_service = RunPreflightService(self.session)
+            preflight_result = preflight_service.preflight(
+                project_id=project_id,
+                mode=mode or "full_search",
+                parameters=None,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to build run recommendation: {e}")
+            return None
+
+        normalized = preflight_result.normalized_config
+        recommendation_parameters = RunRecommendationParameters(
+            num_candidates=normalized.get("num_candidates"),
+            num_scenarios=normalized.get("num_scenarios"),
+            budget_tokens=normalized.get("budget_tokens"),
+            budget_usd=normalized.get("budget_usd"),
+            max_runtime_s=normalized.get("max_runtime_s"),
+        )
+
+        status = (
+            RunRecommendationStatus.READY
+            if preflight_result.ready
+            else RunRecommendationStatus.BLOCKED
+        )
+
+        recommendation = RecommendedRunConfig(
+            project_id=project_id,
+            chat_session_id=chat_session_id,
+            generated_at=datetime.utcnow(),
+            status=status,
+            mode=mode or "full_search",
+            parameters=recommendation_parameters,
+            prerequisites=preflight_result.prerequisites,
+            blockers=preflight_result.blockers,
+            notes=list(preflight_result.notes),
+            details={
+                "normalized_config": normalized,
+                "warnings": [warning.value for warning in preflight_result.warnings],
+            },
+        )
+
+        if recommendation.status == RunRecommendationStatus.READY:
+            recommendation.rationale = (
+                f"Recommend a full pipeline search with "
+                f"{recommendation_parameters.num_candidates} candidates and "
+                f"{recommendation_parameters.num_scenarios} scenarios."
+            )
+            recommendation.notes.append(
+                "Review these settings, then click Run in the Run Config panel when you are ready."
+            )
+        else:
+            recommendation.rationale = (
+                "We're blocked until the missing prerequisites above are completed."
+            )
+            recommendation.notes.append(
+                "Finish the prerequisites (ProblemSpec/WorldModel) and then rerun this recommendation."
+            )
+
+        return recommendation
 

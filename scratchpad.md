@@ -45,6 +45,13 @@
 - 2025-11-20: Latest request – analyze entire streaming/rendering pipeline (frontend + backend) and rebuild if needed to ensure incremental updates stream correctly in the UI.
 - 2025-11-20: Follow-up tweaks – keep the initial user message visible when the project view loads, have the Architect follow up with next steps after updates finish, and add padding around the resolution label in the spec panel.
 - 2025-11-20: Clarification-only questions (e.g., “What is a world model?”) should not mutate the ProblemSpec/WorldModel unless the user explicitly asks for changes; apply heuristics (keyword combos, send data) to bias toward descriptive answers only.
+- 2025-11-21: User invoked `/build-story` for Story 016 (Run advisor contract) to continue planning work.
+- 2025-11-21: User approved continuing Story 016 planning (“go ahead”).
+- 2025-11-21: User reiterated “go ahead” confirming we should keep expanding Story 016 planning.
+- 2025-11-21: User requested decomposition of Story 016 (“Go ahead with the decompose”).
+- 2025-11-21: User asked to proceed with the “next logical move steps” for Story 016.
+- 2025-11-21: User instructed to start Phase 1 execution and continue working without stopping.
+- 2025-11-21: User directed us to spin up the servers and perform QA end-to-end without pausing.
 
 **Quick Start Assumptions**  
 - [If quick start is used, list assumptions made, e.g., "Assumed minimal UI based on requirements."]

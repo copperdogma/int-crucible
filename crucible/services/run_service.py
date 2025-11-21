@@ -6,7 +6,7 @@ ProblemSpec → WorldModel → Designers → ScenarioGenerator → Evaluators �
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -17,8 +17,11 @@ from crucible.db.repositories import (
     update_run_status,
     get_problem_spec,
     get_world_model,
+    list_chat_sessions,
+    create_message,
 )
-from crucible.db.models import RunStatus, RunMode
+from crucible.db.models import RunStatus, RunMode, MessageRole
+from crucible.models.run_contracts import RunSummary, RunSummaryCandidate
 from crucible.services.designer_service import DesignerService
 from crucible.services.scenario_service import ScenarioService
 from crucible.services.evaluator_service import EvaluatorService
@@ -408,6 +411,11 @@ class RunService:
             from crucible.db.repositories import list_projects
             projects = list_projects(self.session)
             project_ids = [p.id for p in projects]
+            update_run_status(
+                self.session,
+                run_id,
+                RunStatus.FAILED.value
+            )
             logger.error(
                 f"ProblemSpec not found for project {run.project_id}. "
                 f"Available projects: {project_ids}"
@@ -420,6 +428,11 @@ class RunService:
 
         world_model = get_world_model(self.session, run.project_id)
         if world_model is None:
+            update_run_status(
+                self.session,
+                run_id,
+                RunStatus.FAILED.value
+            )
             logger.error(f"WorldModel not found for project {run.project_id}")
             raise ValueError(f"WorldModel not found for project {run.project_id}")
         logger.info(f"WorldModel found for project {run.project_id}: {world_model.id}")
@@ -463,6 +476,14 @@ class RunService:
                 completed_at=datetime.utcnow()
             )
 
+            refreshed_run = get_run(self.session, run_id)
+            if refreshed_run:
+                self._post_run_summary_message(
+                    run=refreshed_run,
+                    design_result=design_scenario_result,
+                    evaluate_rank_result=evaluate_rank_result,
+                )
+
             total_duration = time.time() - start_time
             logger.info(
                 f"Full pipeline completed for run {run_id} in {total_duration:.2f}s "
@@ -492,4 +513,107 @@ class RunService:
             if current_run and current_run.status != RunStatus.COMPLETED.value:
                 update_run_status(self.session, run_id, RunStatus.FAILED.value)
             raise
+
+    def _post_run_summary_message(
+        self,
+        run,
+        design_result: Dict[str, Any],
+        evaluate_rank_result: Dict[str, Any],
+    ) -> None:
+        """Create a post-run summary chat message for the project."""
+        try:
+            chat_sessions = list_chat_sessions(self.session, project_id=run.project_id)
+            if not chat_sessions:
+                logger.info(
+                    f"No chat sessions found for project {run.project_id}; skipping run summary message."
+                )
+                return
+
+            summary = self._build_run_summary(run, design_result, evaluate_rank_result)
+            metadata = {
+                "agent_name": "Architect",
+                "run_summary": summary.to_dict(),
+            }
+            content = self._format_run_summary_text(summary)
+
+            message = create_message(
+                self.session,
+                chat_session_id=chat_sessions[0].id,
+                role=MessageRole.AGENT.value,
+                content=content,
+                message_metadata=metadata,
+            )
+
+            run.run_summary_message_id = message.id
+            self.session.commit()
+        except Exception as exc:
+            logger.warning(f"Failed to post run summary for run {run.id}: {exc}", exc_info=True)
+
+    def _build_run_summary(
+        self,
+        run,
+        design_result: Dict[str, Any],
+        evaluate_rank_result: Dict[str, Any],
+    ) -> RunSummary:
+        """Assemble the structured run summary payload."""
+        design_counts = design_result.get("candidates", {}).get("count", 0)
+        scenario_counts = design_result.get("scenarios", {}).get("count", 0)
+        evaluation_counts = evaluate_rank_result.get("evaluations", {}).get("count", 0)
+
+        rankings = evaluate_rank_result.get("rankings", {})
+        ranked_candidates = rankings.get("ranked_candidates", []) or []
+        top_candidates: List[RunSummaryCandidate] = []
+        for candidate in ranked_candidates[:3]:
+            top_candidates.append(
+                RunSummaryCandidate(
+                    candidate_id=candidate.get("id"),
+                    label=candidate.get("label")
+                    or candidate.get("name")
+                    or candidate.get("mechanism_description"),
+                    I=candidate.get("I"),
+                    P=candidate.get("P"),
+                    R=candidate.get("R"),
+                    notes=candidate.get("notes"),
+                )
+            )
+
+        duration_seconds = None
+        if run.started_at and run.completed_at:
+            duration_seconds = (run.completed_at - run.started_at).total_seconds()
+
+        return RunSummary(
+            run_id=run.id,
+            project_id=run.project_id,
+            mode=run.mode.value if hasattr(run.mode, "value") else str(run.mode),
+            status=run.status.value if hasattr(run.status, "value") else str(run.status),
+            started_at=run.started_at,
+            completed_at=run.completed_at,
+            duration_seconds=duration_seconds,
+            counts={
+                "candidates": design_counts,
+                "scenarios": scenario_counts,
+                "evaluations": evaluation_counts,
+            },
+            top_candidates=top_candidates,
+            links={"results_view": f"/runs/{run.id}"},
+            summary_label=f"Run {run.id} summary",
+        )
+
+    def _format_run_summary_text(self, summary: RunSummary) -> str:
+        """Render a concise textual summary for chat."""
+        lines = [
+            f"Run {summary.run_id} ({summary.mode}) completed.",
+            "Counts: "
+            f"{summary.counts.get('candidates', 0)} candidates, "
+            f"{summary.counts.get('scenarios', 0)} scenarios, "
+            f"{summary.counts.get('evaluations', 0)} evaluations.",
+        ]
+        if summary.top_candidates:
+            lines.append("Top candidates:")
+            for idx, candidate in enumerate(summary.top_candidates):
+                label = candidate.label or candidate.candidate_id
+                score = f"I={candidate.I:.2f}" if isinstance(candidate.I, (int, float)) else ""
+                lines.append(f"{idx + 1}. {label} {score}".strip())
+        lines.append("Open the Run panel to inspect full results and provenance.")
+        return "\n".join(lines)
 

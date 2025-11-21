@@ -273,7 +273,13 @@ def create_run(
     project_id: str,
     mode: str,
     config: dict | None = None,
-    run_id: str | None = None
+    run_id: str | None = None,
+    recommended_message_id: str | None = None,
+    recommended_config_snapshot: dict | None = None,
+    ui_trigger_id: str | None = None,
+    ui_trigger_source: str | None = None,
+    ui_trigger_metadata: dict | None = None,
+    ui_triggered_at: datetime | None = None,
 ) -> Run:
     """Create a new run."""
     if run_id is None:
@@ -283,7 +289,13 @@ def create_run(
         id=run_id,
         project_id=project_id,
         mode=mode,
-        config=config
+        config=config,
+        recommended_message_id=recommended_message_id,
+        recommended_config_snapshot=recommended_config_snapshot,
+        ui_trigger_id=ui_trigger_id,
+        ui_trigger_source=ui_trigger_source,
+        ui_trigger_metadata=ui_trigger_metadata,
+        ui_triggered_at=ui_triggered_at,
     )
     session.add(run)
     session.commit()
