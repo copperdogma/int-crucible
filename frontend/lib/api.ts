@@ -111,9 +111,19 @@ export interface Candidate {
   mechanism_description: string;
   predicted_effects?: Record<string, any>;
   scores?: {
-    P?: number;
-    R?: number;
+    P?: number | { overall?: number; components?: Record<string, any> };
+    R?: number | { overall?: number; components?: Record<string, any> };
     I?: number;
+    /** Optional ranking explanation (1-3 sentences) explaining why this candidate is ranked at this position */
+    ranking_explanation?: string;
+    /** Optional structured ranking factors */
+    ranking_factors?: {
+      /** Top positive factors (strengths) that contributed to the ranking */
+      top_positive_factors?: string[];
+      /** Top negative factors (weaknesses) that affected the ranking */
+      top_negative_factors?: string[];
+    };
+    constraint_satisfaction?: Record<string, any>;
   };
   constraint_flags?: string[];
   parent_ids?: string[];

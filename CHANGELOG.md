@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-11-21] - Story 017: Candidate ranking explanations in UI
+
+### Added
+- **Story 017: Candidate ranking explanations in UI** (Complete)
+  - Backend ranking explanation generation in `RankerService._generate_ranking_explanation()`
+    - Generates 1-3 sentence explanations with relative position, P/R tradeoffs, and constraint violations
+    - Structured `ranking_factors` object with top positive/negative factors (2-4 each)
+    - Explanations persisted in `Candidate.scores` as `ranking_explanation` and `ranking_factors`
+    - Uses median P/R values for relative comparisons across candidates
+  - Frontend explanation display in `ResultsView`:
+    - Explanation snippets in candidate cards (first sentence, ~80 chars, truncated)
+    - "Why this rank?" section in candidate detail modal with full explanation
+    - Strengths list (green styling) and Weaknesses list (yellow styling)
+    - Top-ranked candidate explanation visually emphasized
+  - Comprehensive test coverage:
+    - 7 new unit tests for explanation generation (13 total tests passing)
+    - Validation script `scripts/validate_ranking_explanations.py` for end-to-end testing
+  - API response model updates:
+    - `CandidateResponse` and `CandidateDetailResponse` docstrings updated
+    - Explanation fields exposed via existing candidate endpoints
+
+### Changed
+- **Backend**: `RankerService.rank_candidates()` now generates explanations after sorting
+  - Explanations generated with all candidates available for relative comparison
+  - Constraint names mapped from ProblemSpec (fallback to IDs)
+  - Hard constraint violations prioritized in explanations
+- **Frontend**: Enhanced `ResultsView` component
+  - Added conditional rendering for explanation snippets in candidate cards
+  - Added detailed "Why this rank?" section in candidate detail modal
+  - Improved visual hierarchy for ranking information
+- **Frontend**: Updated `Candidate` interface in `frontend/lib/api.ts`
+  - Added optional `ranking_explanation` (string) and `ranking_factors` (object) to scores type
+
+### Fixed
+- **Frontend**: Fixed missing `useToast()` hook call in `frontend/app/page.tsx`
+  - Resolved `ReferenceError: toasts is not defined` when clicking projects
+  - Toast notifications now work correctly throughout the application
+- **Backend**: Fixed unit test fixture to include `provenance_log` as iterable
+  - Resolved `TypeError: 'Mock' object is not iterable` in `rank_candidates` tests
+
+### Documentation
+- **Story Documentation**: Updated `docs/stories/story-017-candidate-ranking-explanations.md`
+  - Complete work log with implementation details
+  - All acceptance criteria documented and verified
+  - Validation results and browser testing notes
+- **Story Tracking**: Updated `docs/stories.md` to mark Story 017 as "Done"
+
 ## [2025-01-21] - Story 009: Feedback loop and issue handling
 
 ### Added

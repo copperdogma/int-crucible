@@ -14,7 +14,7 @@ Int Crucible
 5. DONE:**010 – Multiple chats and runs per project**: Turn projects into persistent reasoning environments once core runs, provenance, and tests are stable.
 6. DONE:**020 – Fix SQLAlchemy metadata cache issue**: Resolve database schema sync problem blocking Run History feature. (Technical Debt - High Priority)
 7. DONE:**009 – Feedback loop and issue handling**: Layer feedback and partial reruns on top of a well-observed, provenance-rich pipeline.
-8. **017 – Candidate ranking explanations in UI**: Refine UX/interpretability of rankings after the core behavior and testing surface are in place.
+8. DONE:**017 – Candidate ranking explanations in UI**: Refine UX/interpretability of rankings after the core behavior and testing surface are in place.
 
 ## Story List
 | Story ID | Title                                             | Priority | Status   | Link                                                     |
@@ -38,7 +38,7 @@ Int Crucible
 | 014      | Streaming architect responses and typing indicators | High   | Done     | /docs/stories/story-014-streaming-and-typing-indicators.md |
 | 015      | Chat-first project creation and selection         | High     | Done     | /docs/stories/story-015-chat-first-project-creation.md  |
 | 016      | Run advisor contract and explicit execution control | High   | Done    | /docs/stories/story-016-run-advisor-contract.md         |
-| 017      | Candidate ranking explanations in UI              | Medium   | To Do    | /docs/stories/story-017-candidate-ranking-explanations.md |
+| 017      | Candidate ranking explanations in UI              | Medium   | Done     | /docs/stories/story-017-candidate-ranking-explanations.md |
 | 018      | AI-first test pipeline and snapshot-based scenarios | Medium | Done    | /docs/stories/story-018-ai-first-test-pipeline.md       |
 | 019      | Operational observability and cost dashboards     | Medium   | Done    | /docs/stories/story-019-operational-observability-and-cost-dashboards.md |
 | 020      | Fix SQLAlchemy metadata cache issue for chat_session_id | Medium | Done | /docs/stories/story-020-sqlalchemy-metadata-cache-fix.md |

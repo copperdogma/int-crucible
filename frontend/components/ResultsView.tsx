@@ -92,12 +92,12 @@ export default function ResultsView({ runId, onIssueCreated }: ResultsViewProps)
                   <div className="flex gap-2 text-xs">
                     {candidate.scores?.P !== undefined && (
                       <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                        P: {candidate.scores.P.toFixed(2)}
+                        P: {typeof candidate.scores.P === 'number' ? candidate.scores.P.toFixed(2) : candidate.scores.P.overall?.toFixed(2) ?? 'N/A'}
                       </span>
                     )}
                     {candidate.scores?.R !== undefined && (
                       <span className="px-2 py-1 bg-green-100 text-green-800 rounded">
-                        R: {candidate.scores.R.toFixed(2)}
+                        R: {typeof candidate.scores.R === 'number' ? candidate.scores.R.toFixed(2) : candidate.scores.R.overall?.toFixed(2) ?? 'N/A'}
                       </span>
                     )}
                     {candidate.scores?.I !== undefined && (
@@ -110,6 +110,17 @@ export default function ResultsView({ runId, onIssueCreated }: ResultsViewProps)
                 <div className="text-sm text-gray-800 line-clamp-2">
                   {candidate.mechanism_description}
                 </div>
+                {candidate.scores?.ranking_explanation && (
+                  <div className={`text-xs mt-1 ${
+                    idx === 0 ? 'font-semibold text-gray-800' : 'text-gray-600'
+                  }`}>
+                    {(() => {
+                      const firstSentence = candidate.scores.ranking_explanation.split('.')[0];
+                      const truncated = firstSentence.slice(0, 80);
+                      return truncated + (firstSentence.length > 80 ? '...' : '');
+                    })()}
+                  </div>
+                )}
                 {candidate.provenance_summary?.last_event && (
                   <div className="mt-2 text-xs text-gray-500">
                     Last event: {candidate.provenance_summary.last_event.type ?? 'update'} ·{' '}
@@ -195,13 +206,21 @@ export default function ResultsView({ runId, onIssueCreated }: ResultsViewProps)
                     {selectedCandidate.scores.P !== undefined && (
                       <div className="p-2 bg-blue-50 rounded">
                         <div className="text-xs text-blue-600">Prediction Quality (P)</div>
-                        <div className="text-lg font-semibold">{selectedCandidate.scores.P.toFixed(2)}</div>
+                        <div className="text-lg font-semibold">
+                          {typeof selectedCandidate.scores.P === 'number' 
+                            ? selectedCandidate.scores.P.toFixed(2)
+                            : selectedCandidate.scores.P.overall?.toFixed(2) ?? 'N/A'}
+                        </div>
                       </div>
                     )}
                     {selectedCandidate.scores.R !== undefined && (
                       <div className="p-2 bg-green-50 rounded">
                         <div className="text-xs text-green-600">Resource Cost (R)</div>
-                        <div className="text-lg font-semibold">{selectedCandidate.scores.R.toFixed(2)}</div>
+                        <div className="text-lg font-semibold">
+                          {typeof selectedCandidate.scores.R === 'number'
+                            ? selectedCandidate.scores.R.toFixed(2)
+                            : selectedCandidate.scores.R.overall?.toFixed(2) ?? 'N/A'}
+                        </div>
                       </div>
                     )}
                     {selectedCandidate.scores.I !== undefined && (
@@ -211,6 +230,34 @@ export default function ResultsView({ runId, onIssueCreated }: ResultsViewProps)
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+              {(candidateDetail?.scores?.ranking_explanation || selectedCandidate.scores?.ranking_explanation) && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">Why this rank?</h4>
+                  <p className="text-sm text-gray-800 mb-3">
+                    {(candidateDetail?.scores ?? selectedCandidate.scores)?.ranking_explanation}
+                  </p>
+                  {(candidateDetail?.scores ?? selectedCandidate.scores)?.ranking_factors?.top_positive_factors?.length > 0 && (
+                    <div className="mb-2">
+                      <div className="text-xs font-semibold text-green-700 mb-1">Strengths:</div>
+                      <ul className="list-disc list-inside text-xs text-green-800 space-y-0.5">
+                        {(candidateDetail?.scores ?? selectedCandidate.scores)?.ranking_factors.top_positive_factors.map((factor, idx) => (
+                          <li key={idx}>{factor}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {(candidateDetail?.scores ?? selectedCandidate.scores)?.ranking_factors?.top_negative_factors?.length > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold text-yellow-700 mb-1">Weaknesses:</div>
+                      <ul className="list-disc list-inside text-xs text-yellow-800 space-y-0.5">
+                        {(candidateDetail?.scores ?? selectedCandidate.scores)?.ranking_factors.top_negative_factors.map((factor, idx) => (
+                          <li key={idx}>{factor}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
               {(candidateDetail?.constraint_flags ?? selectedCandidate.constraint_flags)?.length ? (

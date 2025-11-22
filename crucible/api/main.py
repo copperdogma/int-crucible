@@ -476,7 +476,13 @@ class EvaluationSummary(BaseModel):
 
 
 class CandidateDetailResponse(BaseModel):
-    """Detailed candidate response with provenance and evaluations."""
+    """Detailed candidate response with provenance and evaluations.
+    
+    The `scores` dict may contain:
+    - P, R, I: Prediction quality, resource cost, and intelligence metric scores
+    - ranking_explanation: Optional string (1-3 sentences) explaining the candidate's rank
+    - ranking_factors: Optional dict with top_positive_factors and top_negative_factors lists
+    """
     id: str
     run_id: str
     project_id: str
@@ -493,7 +499,13 @@ class CandidateDetailResponse(BaseModel):
 
 
 class CandidateResponse(BaseModel):
-    """Response model for Candidate."""
+    """Response model for Candidate.
+    
+    The `scores` dict may contain:
+    - P, R, I: Prediction quality, resource cost, and intelligence metric scores
+    - ranking_explanation: Optional string (1-3 sentences) explaining the candidate's rank
+    - ranking_factors: Optional dict with top_positive_factors and top_negative_factors lists
+    """
     id: str
     run_id: str
     project_id: str
@@ -1785,27 +1797,30 @@ async def list_run_candidates(
         # Get candidates
         candidates = repo_list_candidates(db, run_id)
         
-        # Get scores from evaluations if available
+        # Ensure candidates are ranked (this will compute scores and explanations if not already computed)
         ranker_service = RankerService(db)
-        # Try to get ranked candidates (this will compute scores if not already computed)
-        scores_map: dict[str, dict] = {}
         try:
-            ranked_result = ranker_service.rank_candidates(run_id)
-            # Create a map of candidate_id -> scores
-            for ranked in ranked_result.get('ranked_candidates', []):
-                candidate_id = ranked.get('id')
-                if candidate_id:
-                    scores_map[candidate_id] = {
-                        'P': ranked.get('P'),
-                        'R': ranked.get('R'),
-                        'I': ranked.get('I'),
-                    }
-                    constraint_flags = ranked.get('constraint_flags', [])
-                    if constraint_flags:
-                        scores_map[candidate_id]['constraint_flags'] = constraint_flags
+            # This will update candidate.scores in the database with explanations if ranking hasn't been done yet
+            ranker_service.rank_candidates(run_id, run.project_id)
+            # Refresh candidates to get updated scores
+            candidates = repo_list_candidates(db, run_id)
         except Exception as e:
-            # If ranking fails, just return candidates without scores
-            logger.warning(f"Could not get ranked candidates for run {run_id}: {e}")
+            # If ranking fails, just return candidates with existing scores
+            logger.warning(f"Could not rank candidates for run {run_id}: {e}")
+        
+        # Build constraint flags from scores
+        def _build_constraint_flags(scores: dict | None) -> List[str] | None:
+            if not scores:
+                return None
+            constraint_satisfaction = scores.get("constraint_satisfaction", {})
+            if not isinstance(constraint_satisfaction, dict):
+                return None
+            flags = [
+                constraint_id
+                for constraint_id, data in constraint_satisfaction.items()
+                if isinstance(data, dict) and not data.get("satisfied", True)
+            ]
+            return flags or None
         
         return [
             CandidateResponse(
@@ -1816,8 +1831,8 @@ async def list_run_candidates(
                 status=_serialize_enum(c.status),
                 mechanism_description=c.mechanism_description,
                 predicted_effects=c.predicted_effects,
-                scores=scores_map.get(c.id) if c.id in scores_map else None,
-                constraint_flags=scores_map.get(c.id, {}).get('constraint_flags') if c.id in scores_map else None,
+                scores=c.scores,  # Use candidate.scores directly (includes ranking_explanation and ranking_factors)
+                constraint_flags=_build_constraint_flags(c.scores),
                 parent_ids=c.parent_ids or [],
                 provenance_summary=_to_candidate_provenance_summary(c.provenance_log),
             )

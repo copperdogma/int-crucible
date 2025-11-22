@@ -30,6 +30,7 @@ export default function Home() {
   const specPanelScrollRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTopRef = useRef(false);
   const chatInterfaceRef = useRef<ChatInterfaceRef>(null);
+  const { toasts, removeToast } = useToast();
 
   // Handler to create analysis chat for a run
   const createAnalysisChatMutation = useMutation({

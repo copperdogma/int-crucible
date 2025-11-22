@@ -7,6 +7,7 @@ Aggregates evaluation results, computes I = P/R, and flags hard constraint viola
 
 import logging
 from typing import Dict, Any, List, Optional
+import statistics
 
 from sqlalchemy.orm import Session
 
@@ -249,6 +250,41 @@ class RankerService:
         # Sort by I score (descending)
         ranked_candidates.sort(key=lambda x: x["scores"].get("I", 0.0), reverse=True)
 
+        # Generate ranking explanations for each candidate (after sorting, when we have all candidates)
+        # Build candidate lookup map for efficient access
+        candidates_by_id = {c.id: c for c in candidates}
+        
+        for rank_index, ranked_entry in enumerate(ranked_candidates):
+            candidate_id = ranked_entry["id"]
+            candidate = candidates_by_id.get(candidate_id)
+            if candidate is None:
+                logger.warning(f"Candidate {candidate_id} not found for explanation generation")
+                continue
+
+            # Generate explanation
+            explanation_data = self._generate_ranking_explanation(
+                candidate=candidate,
+                rank_index=rank_index,
+                all_ranked_candidates=ranked_candidates,
+                constraint_weights=constraint_weights,
+                problem_spec=problem_spec
+            )
+
+            # Update scores with explanation
+            current_scores = ranked_entry["scores"].copy()
+            current_scores["ranking_explanation"] = explanation_data["ranking_explanation"]
+            current_scores["ranking_factors"] = explanation_data["ranking_factors"]
+
+            # Update candidate in database with new scores
+            update_candidate(
+                self.session,
+                candidate_id=candidate_id,
+                scores=current_scores
+            )
+
+            # Update ranked_entry for return value
+            ranked_entry["scores"] = current_scores
+
         # Commit all updates
         self.session.commit()
 
@@ -256,5 +292,177 @@ class RankerService:
             "ranked_candidates": ranked_candidates,
             "count": len(ranked_candidates),
             "hard_constraint_violations": hard_constraint_violations
+        }
+
+    def _generate_ranking_explanation(
+        self,
+        candidate: Any,
+        rank_index: int,
+        all_ranked_candidates: List[Dict[str, Any]],
+        constraint_weights: Dict[str, int],
+        problem_spec: Any
+    ) -> Dict[str, Any]:
+        """
+        Generate ranking explanation and factors for a candidate.
+
+        Args:
+            candidate: Candidate model instance
+            rank_index: 0-based rank (0 = first place)
+            all_ranked_candidates: All ranked candidates in order
+            constraint_weights: Map of constraint_id -> weight
+            problem_spec: ProblemSpec model instance
+
+        Returns:
+            dict with:
+                - ranking_explanation: str (1-3 sentences)
+                - ranking_factors: dict with top_positive_factors and top_negative_factors lists
+        """
+        candidate_scores = candidate.scores or {}
+        I_score = candidate_scores.get("I", 0.0)
+        P_aggregated = candidate_scores.get("P", {}).get("overall", 0.5) if isinstance(candidate_scores.get("P"), dict) else 0.5
+        R_aggregated = candidate_scores.get("R", {}).get("overall", 0.5) if isinstance(candidate_scores.get("R"), dict) else 0.5
+        constraint_satisfaction = candidate_scores.get("constraint_satisfaction", {})
+
+        # Build constraint name map from ProblemSpec
+        constraint_name_map = {}
+        for constraint in (problem_spec.constraints or []):
+            constraint_id = constraint.get("name") or constraint.get("id", "unknown")
+            constraint_name = constraint.get("name", constraint_id)
+            constraint_name_map[constraint_id] = constraint_name
+
+        # Compute median P and R values across all candidates
+        P_values = []
+        R_values = []
+        for ranked_cand in all_ranked_candidates:
+            cand_scores = ranked_cand.get("scores", {})
+            cand_P = cand_scores.get("P", {}).get("overall", 0.5) if isinstance(cand_scores.get("P"), dict) else 0.5
+            cand_R = cand_scores.get("R", {}).get("overall", 0.5) if isinstance(cand_scores.get("R"), dict) else 0.5
+            P_values.append(cand_P)
+            R_values.append(cand_R)
+
+        median_P = statistics.median(P_values) if P_values else 0.5
+        median_R = statistics.median(R_values) if R_values else 0.5
+
+        # Determine relative position
+        rank_number = rank_index + 1
+        relative_position_parts = [f"Ranked #{rank_number}"]
+        
+        if rank_number == 1 and len(all_ranked_candidates) > 1:
+            # Compare to #2
+            next_cand = all_ranked_candidates[1]
+            next_I = next_cand.get("scores", {}).get("I", 0.0)
+            if next_I > 0:
+                percent_diff = ((I_score - next_I) / next_I) * 100
+                relative_position_parts.append(f"with I={I_score:.2f}, {abs(percent_diff):.0f}% higher than #2")
+            else:
+                relative_position_parts.append(f"with I={I_score:.2f}")
+        elif rank_number > 1:
+            # Compare to previous candidate
+            prev_cand = all_ranked_candidates[rank_index - 1]
+            prev_I = prev_cand.get("scores", {}).get("I", 0.0)
+            if prev_I > 0:
+                percent_diff = ((prev_I - I_score) / prev_I) * 100
+                relative_position_parts.append(f"with I={I_score:.2f}, {percent_diff:.0f}% lower than #{rank_number - 1}")
+            else:
+                relative_position_parts.append(f"with I={I_score:.2f}")
+
+        # Identify hard-constraint violations
+        hard_violations = []
+        for constraint_id, satisfaction in constraint_satisfaction.items():
+            weight = constraint_weights.get(constraint_id, 0)
+            if weight >= 100 and isinstance(satisfaction, dict) and not satisfaction.get("satisfied", False):
+                constraint_name = constraint_name_map.get(constraint_id, constraint_id)
+                hard_violations.append(constraint_name)
+
+        # Identify top positive and negative factors
+        positive_factors = []
+        negative_factors = []
+
+        # Hard constraint violations (highest priority for negative)
+        for constraint_name in hard_violations:
+            negative_factors.append(f"Violates hard constraint '{constraint_name}'")
+
+        # Constraint satisfaction analysis
+        for constraint_id, satisfaction in constraint_satisfaction.items():
+            if not isinstance(satisfaction, dict):
+                continue
+            
+            weight = constraint_weights.get(constraint_id, 0)
+            satisfied = satisfaction.get("satisfied", True)
+            score = satisfaction.get("score", 0.5)
+            constraint_name = constraint_name_map.get(constraint_id, constraint_id)
+
+            # High-weight constraints (weight >= 50)
+            if weight >= 50:
+                if satisfied and score > 0.8:
+                    if weight >= 100:
+                        positive_factors.append(f"Satisfies hard constraint '{constraint_name}'")
+                    else:
+                        positive_factors.append(f"Satisfies high-weight constraint '{constraint_name}'")
+                elif not satisfied or score < 0.5:
+                    if weight >= 100 and constraint_name not in hard_violations:
+                        negative_factors.append(f"Violates hard constraint '{constraint_name}'")
+                    elif weight >= 50:
+                        negative_factors.append(f"Weak on constraint '{constraint_name}'")
+
+        # Performance factors (P/R relative to median)
+        if P_aggregated > median_P:
+            positive_factors.append("High prediction quality")
+        elif P_aggregated < median_P:
+            negative_factors.append("Low prediction quality")
+
+        if R_aggregated < median_R:
+            positive_factors.append("Low resource cost")
+        elif R_aggregated > median_R:
+            negative_factors.append("High resource cost")
+
+        # Limit factors to 2-4 each, prioritizing by weight and impact
+        # Sort negative factors: hard violations first, then by weight
+        negative_factors_sorted = sorted(
+            negative_factors,
+            key=lambda x: (not x.startswith("Violates hard"), x)
+        )[:4]
+        positive_factors_sorted = positive_factors[:4]
+
+        # Build explanation string (1-3 sentences)
+        explanation_parts = []
+
+        # Start with relative position
+        explanation_parts.append(". ".join(relative_position_parts) + ".")
+
+        # Hard violations (always mention first if present)
+        if hard_violations:
+            violation_names = ", ".join([f"'{v}'" for v in hard_violations])
+            if len(hard_violations) == 1:
+                explanation_parts.append(f"Violates hard constraint {violation_names}.")
+            else:
+                explanation_parts.append(f"Violates hard constraints {violation_names}.")
+
+        # P/R tradeoff
+        if P_aggregated > 0.7 and R_aggregated < 0.4:
+            explanation_parts.append(f"High prediction quality (P={P_aggregated:.2f}) with low cost (R={R_aggregated:.2f}).")
+        elif P_aggregated > 0.7:
+            explanation_parts.append(f"High prediction quality (P={P_aggregated:.2f}) with moderate cost (R={R_aggregated:.2f}).")
+        elif P_aggregated < 0.4:
+            explanation_parts.append(f"Low prediction quality (P={P_aggregated:.2f}) but low cost (R={R_aggregated:.2f}).")
+
+        # Constraint strengths (top 1-2)
+        constraint_strengths = [
+            f for f in positive_factors_sorted 
+            if "constraint" in f.lower() and "Satisfies" in f
+        ]
+        if constraint_strengths:
+            constraint_text = constraint_strengths[0].replace("Satisfies ", "").replace(" high-weight constraint ", "").replace(" hard constraint ", "").strip("'")
+            explanation_parts.append(f"Excels at satisfying constraint '{constraint_text}'.")
+
+        # Join into final explanation (limit to 3 sentences max)
+        ranking_explanation = " ".join(explanation_parts[:3])
+
+        return {
+            "ranking_explanation": ranking_explanation,
+            "ranking_factors": {
+                "top_positive_factors": positive_factors_sorted,
+                "top_negative_factors": negative_factors_sorted
+            }
         }
 
