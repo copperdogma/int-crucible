@@ -646,6 +646,8 @@ export const issuesApi = {
     message: string;
     issue_id: string;
     remediation_action: string;
+    original_remediation_action?: string;
+    action_upgraded?: boolean;
     result: Record<string, any>;
   }> => {
     return apiFetch(`/issues/${issueId}/resolve`, {

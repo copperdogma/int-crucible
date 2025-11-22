@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from crucible.db.models import Issue, RunMode, RunStatus
 
 from crucible.api.main import app
-from crucible.db.repositories import create_project, create_run
+from crucible.db.repositories import create_project, create_run, create_issue
 
 
 @pytest.fixture
@@ -24,6 +24,12 @@ def test_client(integration_db_session):
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def db_session(test_client, integration_db_session):
+    """Provide database session for direct database operations in tests."""
+    return integration_db_session
 
 
 @pytest.fixture
@@ -225,4 +231,163 @@ class TestIssueAPI:
         assert "feedback_message" in data
         assert "clarifying_questions" in data
         assert "remediation_proposal" in data or "needs_clarification" in data
+
+    def test_resolve_issue_auto_upgrade_patch_and_rescore_no_run_id(self, test_client, test_project, db_session):
+        """Test that patch_and_rescore auto-upgrades to full_rerun when issue has no run_id."""
+        from unittest.mock import patch
+        
+        # Create issue without run_id
+        issue = create_issue(
+            db_session,
+            project_id=test_project.id,
+            type="model",
+            severity="minor",
+            description="Test issue without run",
+            run_id=None
+        )
+        
+        # Mock the full_rerun to avoid actual execution
+        with patch('crucible.services.issue_service.IssueService.apply_full_rerun') as mock_full_rerun:
+            mock_full_rerun.return_value = {
+                "status": "success",
+                "action": "full_rerun",
+                "patches_applied": []
+            }
+            
+            response = test_client.post(
+                f"/issues/{issue.id}/resolve",
+                json={
+                    "remediation_action": "patch_and_rescore",
+                    "remediation_metadata": {"problem_spec": {}}
+                }
+            )
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "success"
+            assert data["remediation_action"] == "full_rerun"  # Auto-upgraded
+            assert data["original_remediation_action"] == "patch_and_rescore"
+            assert data["action_upgraded"] is True
+            assert "auto-upgraded" in data["message"].lower()
+            
+            # Verify full_rerun was called, not patch_and_rescore
+            mock_full_rerun.assert_called_once()
+
+    def test_resolve_issue_auto_upgrade_partial_rerun_no_run_id(self, test_client, test_project, db_session):
+        """Test that partial_rerun auto-upgrades to full_rerun when issue has no run_id."""
+        from unittest.mock import patch
+        
+        # Create issue without run_id
+        issue = create_issue(
+            db_session,
+            project_id=test_project.id,
+            type="constraint",
+            severity="important",
+            description="Test issue without run",
+            run_id=None
+        )
+        
+        # Mock the full_rerun to avoid actual execution
+        with patch('crucible.services.issue_service.IssueService.apply_full_rerun') as mock_full_rerun:
+            mock_full_rerun.return_value = {
+                "status": "success",
+                "action": "full_rerun",
+                "patches_applied": []
+            }
+            
+            response = test_client.post(
+                f"/issues/{issue.id}/resolve",
+                json={
+                    "remediation_action": "partial_rerun",
+                    "remediation_metadata": {"problem_spec": {}}
+                }
+            )
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "success"
+            assert data["remediation_action"] == "full_rerun"  # Auto-upgraded
+            assert data["original_remediation_action"] == "partial_rerun"
+            assert data["action_upgraded"] is True
+            
+            # Verify full_rerun was called
+            mock_full_rerun.assert_called_once()
+
+    def test_resolve_issue_no_upgrade_with_run_id(self, test_client, test_project, test_run, db_session):
+        """Test that patch_and_rescore works normally when issue has run_id."""
+        from unittest.mock import patch
+        
+        # Create issue with run_id
+        issue = create_issue(
+            db_session,
+            project_id=test_project.id,
+            type="model",
+            severity="minor",
+            description="Test issue with run",
+            run_id=test_run.id
+        )
+        
+        # Mock patch_and_rescore (full_rerun should NOT be called)
+        with patch('crucible.services.issue_service.IssueService.apply_patch_and_rescore') as mock_patch:
+            with patch('crucible.services.issue_service.IssueService.apply_full_rerun') as mock_full:
+                mock_patch.return_value = {
+                    "status": "success",
+                    "action": "patch_and_rescore",
+                    "patches_applied": ["problem_spec"]
+                }
+                
+                response = test_client.post(
+                    f"/issues/{issue.id}/resolve",
+                    json={
+                        "remediation_action": "patch_and_rescore",
+                        "remediation_metadata": {"problem_spec": {}}
+                    }
+                )
+                
+                assert response.status_code == 200
+                data = response.json()
+                assert data["status"] == "success"
+                assert data["remediation_action"] == "patch_and_rescore"  # Not upgraded
+                assert data["action_upgraded"] is False
+                assert data.get("original_remediation_action") is None
+                
+                # Verify patch_and_rescore was called, not full_rerun
+                mock_patch.assert_called_once()
+                mock_full.assert_not_called()
+
+    def test_resolve_issue_full_rerun_no_upgrade_needed(self, test_client, test_project, db_session):
+        """Test that full_rerun doesn't require run_id and works normally."""
+        from unittest.mock import patch
+        
+        # Create issue without run_id
+        issue = create_issue(
+            db_session,
+            project_id=test_project.id,
+            type="model",
+            severity="catastrophic",
+            description="Test issue for full rerun",
+            run_id=None
+        )
+        
+        # Mock full_rerun
+        with patch('crucible.services.issue_service.IssueService.apply_full_rerun') as mock_full_rerun:
+            mock_full_rerun.return_value = {
+                "status": "success",
+                "action": "full_rerun",
+                "patches_applied": []
+            }
+            
+            response = test_client.post(
+                f"/issues/{issue.id}/resolve",
+                json={
+                    "remediation_action": "full_rerun",
+                    "remediation_metadata": {"problem_spec": {}}
+                }
+            )
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "success"
+            assert data["remediation_action"] == "full_rerun"
+            assert data["action_upgraded"] is False  # No upgrade needed
 

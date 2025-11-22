@@ -276,7 +276,10 @@ export default function Home() {
                 projectId={selectedProjectId}
                 chatSessionId={selectedChatSessionId}
                 onChatSessionChange={setSelectedChatSessionId}
-                onRecommendation={(config) => setRunConfigDraft(config)}
+                onRecommendation={(config) => {
+                  setRunConfigDraft(config);
+                  setShowRunConfig(true);
+                }}
                 onRunSummary={(summary) => {
                   if (summary?.run_id) {
                     setActiveRunId(summary.run_id);

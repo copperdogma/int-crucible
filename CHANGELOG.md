@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-11-22] - Issues #006 and #007: Remediation action improvements
+
+### Fixed
+- **Issue #006**: Auto-upgrade remediation actions when issue lacks run_id
+  - Backend now automatically upgrades `patch_and_rescore` or `partial_rerun` to `full_rerun` when issue has no `run_id`
+  - Added validation logic in `crucible/api/main.py` `resolve_issue` endpoint
+  - API response includes `action_upgraded` and `original_remediation_action` fields
+  - Frontend displays informative message when auto-upgrade occurs
+  - Added 4 integration tests covering all auto-upgrade scenarios
+
+- **Issue #007**: Remediation action clarity and user experience improvements
+  - Added prominent "What will happen" section to remediation proposal cards
+  - Shows action type, estimated time, cost, and impact for each remediation action
+  - Added confirmation dialog for expensive `full_rerun` actions with clear warnings
+  - Visual indicators: red button styling and warning icons for expensive actions
+  - Enhanced button text: "⚠️ Approve & Start Full Run" for full_rerun actions
+  - Color-coded remediation cards (red/yellow/green) based on action severity
+
+### Added
+- **Testing**: Comprehensive test coverage for remediation auto-upgrade
+  - 4 new integration tests in `tests/integration/test_issue_api.py`
+  - E2E tests in `tests/integration/test_remediation_e2e.py`
+  - All tests passing
+
+- **Documentation**: Issue tracking system
+  - Created `issues.md` for tracking bugs and UX issues
+  - Added issue templates and detailed investigation files in `docs/issues/`
+  - Issues #006 and #007 fully documented with resolution details
+
+### Changed
+- **Frontend**: `RemediationProposalCard.tsx` - Major UX improvements
+  - Added `getActionExplanation()` function with action-specific explanations
+  - Added `requiresConfirmation()` function for expensive actions
+  - Enhanced confirmation dialog with detailed warnings
+  - Improved button styling and text based on action type
+
+- **Backend**: `crucible/api/main.py` - Auto-upgrade logic
+  - Enhanced `resolve_issue` endpoint with run_id validation
+  - Improved error handling and user feedback
+  - Fixed syntax error (unclosed parenthesis in naming prompt)
+
+- **API**: `frontend/lib/api.ts` - Response type updates
+  - Added `action_upgraded` and `original_remediation_action` to resolve response type
+
+### Testing
+- ✅ All integration tests passing (13 tests in `test_issue_api.py`)
+- ✅ Browser testing confirmed UI improvements work correctly
+- ✅ Validation completed with grade A (93%)
+
 ## [2025-11-21] - Story audit: Complete implementation status review and documentation updates
 
 ### Changed

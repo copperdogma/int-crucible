@@ -9,18 +9,20 @@ Int Crucible
 ## Outstanding Work Summary
 
 **Stories with Outstanding Implementation Work:**
-- **None!** All 20 stories have their implementation tasks complete. 
+- **Story 021**: URL routing and state persistence (To Do) 
 
 **Stories Pending User Sign-Off:**
 All stories (001-020) have "User must sign off on functionality before story can be marked complete" as their only remaining task. Implementation is complete, but user acceptance testing and sign-off is required before marking as "Done" in the story files themselves.
 
-**Note:** The story index below shows all stories as "Done" based on implementation completion. Individual story files may still show "To Do" status pending user sign-off, which is tracked in their task checklists.
+**Note:** The story index below shows stories 001-020 as "Done" based on implementation completion. Individual story files may still show "To Do" status pending user sign-off, which is tracked in their task checklists. Story 021 is new and has not yet been implemented.
 
 ---
 
 ## Suggested Implementation Order (Remaining Stories)
 
-All implementation is complete! 🎉
+- **Story 021**: URL routing and state persistence (Medium priority, UX enhancement)
+  - Can be implemented independently of other stories
+  - Improves user experience significantly (shareability, bookmarking, refresh persistence)
 
 ---
 
@@ -50,6 +52,7 @@ All implementation is complete! 🎉
 | 018      | AI-first test pipeline and snapshot-based scenarios | Medium | Done    | /docs/stories/story-018-ai-first-test-pipeline.md       |
 | 019      | Operational observability and cost dashboards     | Medium   | Done    | /docs/stories/story-019-operational-observability-and-cost-dashboards.md |
 | 020      | Fix SQLAlchemy metadata cache issue for chat_session_id | Medium | Done | /docs/stories/story-020-sqlalchemy-metadata-cache-fix.md |
+| 021      | URL routing and state persistence                       | Medium | To Do | /docs/stories/story-021-url-routing-and-state-persistence.md |
 
 ## Notes
 - Initial stories are derived from the high-level epics in `docs/temp-story-map.md` and aligned with `docs/requirements.md`, `docs/design.md`, and `docs/architecture.md`. Additional stories can be added as the design evolves.

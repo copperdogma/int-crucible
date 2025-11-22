@@ -241,13 +241,21 @@ const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(function 
   // This prevents messages from "popping in" while streaming is happening
   // CRITICAL: The query is disabled during streaming to ensure we only show streaming content
   // Use ref check for synchronous evaluation (React state updates are async)
-  const { data: messages = [], isLoading: messagesLoading } = useQuery({
+  const { data: messages = [], isLoading: messagesLoading, error: messagesError, refetch: refetchMessages } = useQuery<Message[]>({
     queryKey: ['messages', chatSessionId],
-    queryFn: () => (chatSessionId ? messagesApi.list(chatSessionId) : []),
+    queryFn: () => (chatSessionId ? messagesApi.list(chatSessionId) : Promise.resolve([])),
     enabled: !!chatSessionId,
-    keepPreviousData: true,
+    placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+    retry: (failureCount, error) => {
+      // Don't retry on 404 errors (chat session doesn't exist)
+      if (error instanceof Error && error.message === 'NOT_FOUND') {
+        return false;
+      }
+      // Retry up to 2 times for other errors
+      return failureCount < 2;
+    },
   });
 
   // Show initial greeting when no project exists
@@ -500,14 +508,14 @@ const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(function 
         const issueMessage = `I've flagged an issue. Can you help me understand and resolve it?`;
         await messagesApi.create(chatSessionId, issueMessage, 'user');
         
-        // Create assistant message with feedback
+        // Create agent message with feedback
         const feedbackMessage = feedback.feedback_message;
         // Store remediation proposal in message metadata for rendering
         const messageMetadata = feedback.remediation_proposal ? {
           remediation_proposal: feedback.remediation_proposal,
           issue_id: issueId,
         } : undefined;
-        await messagesApi.create(chatSessionId, feedbackMessage, 'assistant', messageMetadata);
+        await messagesApi.create(chatSessionId, feedbackMessage, 'agent', messageMetadata);
         
         // Refresh messages
         await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
@@ -564,6 +572,51 @@ const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(function 
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-gray-900">Loading messages...</div>
+      </div>
+    );
+  }
+
+  // Show error state if messages failed to load
+  if (messagesError && projectId && chatSessionId && !isGeneratingReply && !isStartingStreamRef.current) {
+    const errorMessage = messagesError instanceof Error ? messagesError.message : 'Failed to load messages';
+    const isNotFound = errorMessage === 'NOT_FOUND' || errorMessage.includes('404');
+    
+    return (
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <div className="text-red-600 font-semibold mb-2">Error loading chat history</div>
+          <div className="text-gray-700 mb-4">
+            {isNotFound ? (
+              <div>
+                <p>The chat session could not be found.</p>
+                <p className="text-sm mt-2">It may have been deleted or you may not have access to it.</p>
+              </div>
+            ) : (
+              <div>
+                <p>{errorMessage}</p>
+                <p className="text-sm mt-2">Please try again or contact support if the problem persists.</p>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => refetchMessages()}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              Retry
+            </button>
+            {!isNotFound && (
+              <button
+                onClick={() => {
+                  console.error('Messages loading error:', messagesError);
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+              >
+                View Details (Console)
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

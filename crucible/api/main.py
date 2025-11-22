@@ -18,7 +18,6 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
 import json
-import asyncio
 
 from crucible.config import get_config
 from crucible.db.session import get_session
@@ -26,16 +25,14 @@ from crucible.services.problemspec_service import ProblemSpecService
 from crucible.services.worldmodel_service import WorldModelService
 from crucible.services.designer_service import DesignerService
 from crucible.services.scenario_service import ScenarioService
-from crucible.services.evaluator_service import EvaluatorService
-from crucible.services.ranker_service import RankerService
 from crucible.services.run_service import RunService
 from crucible.services.guidance_service import GuidanceService
 from crucible.services.run_preflight_service import RunPreflightService
 from crucible.services.snapshot_service import SnapshotService
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from crucible.models.run_contracts import RunTriggerSource
-from crucible.db.models import Run, RunStatus
+from crucible.db.models import RunStatus
 from crucible.core.provenance import summarize_provenance_log
 
 # Initialize logging
@@ -124,7 +121,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
-from sqlalchemy.exc import SQLAlchemyError
 
 @app.exception_handler(SQLAlchemyError)
 async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
@@ -235,7 +231,10 @@ async def test_kosmos_agent() -> Dict[str, Any]:
         logger.error(f"Failed to import Kosmos: {e}")
         raise HTTPException(
             status_code=503,
-            detail="Kosmos integration not available. Ensure Kosmos is installed with: pip install -e vendor/kosmos"
+            detail=(
+                "Kosmos integration not available. "
+                "Ensure Kosmos is installed with: pip install -e vendor/kosmos"
+            )
         )
     except Exception as e:
         logger.error(f"Error testing Kosmos: {e}")
@@ -949,8 +948,8 @@ async def create_project_from_description(
             mode="setup"
         )
         
-        # Create user's initial message
-        user_message = repo_create_message(
+        # Create user's initial message (stored in database)
+        repo_create_message(
             db,
             chat_session_id=chat_session.id,
             role="user",
@@ -968,7 +967,10 @@ async def create_project_from_description(
                 import re
                 
                 llm_provider = get_provider()
-                naming_prompt = f"""Based on this project description, generate a concise, professional project name (2-6 words) and a brief description (1-2 sentences) that summarizes the project goals.
+                naming_prompt = (
+                    f"""Based on this project description, generate a concise, """
+                    f"""professional project name (2-6 words) and a brief description """
+                    f"""(1-2 sentences) that summarizes the project goals.
 
 User description: "{request.description[:500]}"
 
@@ -977,6 +979,7 @@ Respond with JSON only:
     "title": "concise project name",
     "description": "brief project description"
 }}"""
+                )
                 
                 response = llm_provider.generate(
                     naming_prompt,
@@ -1345,11 +1348,31 @@ async def list_messages(
         from crucible.db.repositories import list_messages as repo_list_messages
         
         messages = repo_list_messages(db, chat_session_id)
+        # Convert message role enum to lowercase string value
+        # The database enum stores uppercase (USER, SYSTEM, AGENT) but we need lowercase (user, system, agent)
+        def normalize_role(role):
+            if hasattr(role, 'value'):
+                value = role.value
+                if isinstance(value, str):
+                    return value.lower()
+                return str(value).lower()
+            elif isinstance(role, str):
+                # Handle string values (may be uppercase from database)
+                role_upper = role.upper()
+                if role_upper == 'USER':
+                    return 'user'
+                elif role_upper == 'SYSTEM':
+                    return 'system'
+                elif role_upper == 'AGENT' or role_upper == 'ASSISTANT':
+                    return 'agent'
+                return role.lower()
+            return str(role).lower()
+        
         return [
             MessageResponse(
                 id=m.id,
                 chat_session_id=m.chat_session_id,
-                role=m.role,
+                role=normalize_role(m.role),
                 content=m.content,
                 message_metadata=m.message_metadata,
                 created_at=m.created_at.isoformat() if m.created_at else None,
@@ -1395,7 +1418,7 @@ async def create_message(
         return MessageResponse(
             id=message.id,
             chat_session_id=message.chat_session_id,
-            role=message.role,
+            role=message.role.value if hasattr(message.role, 'value') else str(message.role),
             content=message.content,
             message_metadata=message.message_metadata,
             created_at=message.created_at.isoformat() if message.created_at else None,
@@ -4332,18 +4355,33 @@ async def resolve_issue(
         patch_data = request.remediation_metadata or {}
         run_config = patch_data.pop("run_config", None)
         
+        # Actions that require run_id: patch_and_rescore, partial_rerun
+        # If issue has no run_id, automatically upgrade to full_rerun
+        action_requires_run_id = request.remediation_action in ["patch_and_rescore", "partial_rerun"]
+        actual_action = request.remediation_action
+        action_upgraded = False
+        
+        if action_requires_run_id and not issue.run_id:
+            # Auto-upgrade to full_rerun since we can't patch/rescore without a run
+            logger.info(
+                f"Issue {issue_id} has no run_id but requested {request.remediation_action}. "
+                f"Auto-upgrading to full_rerun."
+            )
+            actual_action = "full_rerun"
+            action_upgraded = True
+        
         try:
-            if request.remediation_action == "patch_and_rescore":
+            if actual_action == "patch_and_rescore":
                 result = issue_service.apply_patch_and_rescore(
                     issue_id=issue_id,
                     patch_data=patch_data,
                 )
-            elif request.remediation_action == "partial_rerun":
+            elif actual_action == "partial_rerun":
                 result = issue_service.apply_partial_rerun(
                     issue_id=issue_id,
                     patch_data=patch_data,
                 )
-            elif request.remediation_action == "full_rerun":
+            elif actual_action == "full_rerun":
                 result = issue_service.apply_full_rerun(
                     issue_id=issue_id,
                     patch_data=patch_data,
@@ -4364,14 +4402,28 @@ async def resolve_issue(
             else:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Unknown remediation action: {request.remediation_action}. Must be one of: patch_and_rescore, partial_rerun, full_rerun, invalidate_candidates"
+                    detail=(
+                        f"Unknown remediation action: {request.remediation_action}. "
+                        "Must be one of: patch_and_rescore, partial_rerun, "
+                        "full_rerun, invalidate_candidates"
+                    )
+                )
+            
+            message = f"Issue {issue_id} resolved with action '{actual_action}'"
+            if action_upgraded:
+                original_action = request.remediation_action
+                message += (
+                    f" (auto-upgraded from '{original_action}' "
+                    "because issue has no associated run_id)"
                 )
             
             return {
                 "status": "success",
-                "message": f"Issue {issue_id} resolved with action '{request.remediation_action}'",
+                "message": message,
                 "issue_id": issue_id,
-                "remediation_action": request.remediation_action,
+                "remediation_action": actual_action,
+                "original_remediation_action": request.remediation_action if action_upgraded else None,
+                "action_upgraded": action_upgraded,
                 "result": result,
             }
         except ValueError as e:
