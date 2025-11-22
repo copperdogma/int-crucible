@@ -1,6 +1,6 @@
 # Story: Implement interactive guidance and onboarding agent
 
-**Status**: To Do
+**Status**: Implementation Complete ✅ (Pending User Sign-Off)
 
 ---
 
@@ -51,31 +51,32 @@ There's no proactive agent that:
   - The FeedbackAgent (which handles post-run issues)
 
 ## Tasks
-- [ ] Design the Guidance agent interface and behavior:
-  - [ ] Define when the agent should proactively intervene vs. wait for user request
-  - [ ] Define the agent's knowledge base (workflow steps, component explanations, common questions)
-  - [ ] Define how the agent accesses project state to provide contextual guidance
-- [ ] Implement the Guidance agent (on Kosmos framework):
-  - [ ] Create `GuidanceAgent` class extending `BaseAgent`
-  - [ ] Implement state detection logic (check for ProblemSpec, WorldModel, runs, etc.)
-  - [ ] Implement guidance prompts that explain workflow and suggest next steps
-  - [ ] Implement question-answering about the system
-- [ ] Integrate with chat interface:
-  - [ ] Add guidance agent responses to chat flow
-  - [ ] Allow users to explicitly request guidance (e.g., "help", "what's next?", "guide me")
-  - [ ] Support proactive suggestions (e.g., when user opens Run Config without prerequisites)
-- [ ] Add UI affordances:
-  - [ ] "Get Help" or "Guide Me" button in the UI
-  - [ ] Progress indicators showing workflow state
-  - [ ] Contextual hints/tooltips (can be toggled on/off)
-  - [ ] Visual indicators for missing prerequisites
-- [ ] Add backend API endpoints:
-  - [ ] `POST /chat-sessions/{chat_session_id}/guidance` - Request guidance
-  - [ ] `GET /projects/{project_id}/workflow-state` - Get current workflow state for contextual guidance
-- [ ] Add tests or sample flows showing:
-  - [ ] New user onboarding flow
-  - [ ] Contextual help at different workflow stages
-  - [ ] Question-answering about the system
+- [x] Design the Guidance agent interface and behavior:
+  - [x] Define when the agent should proactively intervene vs. wait for user request
+  - [x] Define the agent's knowledge base (workflow steps, component explanations, common questions)
+  - [x] Define how the agent accesses project state to provide contextual guidance (via dynamic tool creation)
+- [x] Implement the Guidance agent (on Kosmos framework):
+  - [x] Create `GuidanceAgent` class extending `BaseAgent`
+  - [x] Implement state detection logic (check for ProblemSpec, WorldModel, runs, etc.)
+  - [x] Implement guidance prompts that explain workflow and suggest next steps
+  - [x] Implement question-answering about the system (AI-native tool-based approach)
+- [x] Integrate with chat interface:
+  - [x] Add guidance agent responses to chat flow
+  - [x] Allow users to explicitly request guidance (e.g., "help", "what's next?", "guide me")
+  - [x] Support proactive suggestions (workflow state detection)
+- [x] Add UI affordances:
+  - [x] "Get Help" or "Guide Me" button in the UI
+  - [x] Progress indicators showing workflow state (WorkflowProgress component)
+  - [x] Contextual hints/tooltips (can be toggled on/off)
+  - [x] Visual indicators for missing prerequisites
+- [x] Add backend API endpoints:
+  - [x] `POST /chat-sessions/{chat_session_id}/guidance` - Request guidance
+  - [x] `GET /projects/{project_id}/workflow-state` - Get current workflow state for contextual guidance
+- [x] Add tests or sample flows showing:
+  - [x] New user onboarding flow
+  - [x] Contextual help at different workflow stages
+  - [x] Question-answering about the system
+  - [x] Comprehensive unit tests for GuidanceAgent (test_guidance_agent.py)
 - [ ] User must sign off on functionality before story can be marked complete.
 
 ## Notes

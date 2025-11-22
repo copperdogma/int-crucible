@@ -1,6 +1,6 @@
 # Story: Implement WorldModeller and live spec/world-model view
 
-**Status**: To Do
+**Status**: Implementation Complete ✅ (Pending User Sign-Off)
 
 ---
 
@@ -31,9 +31,9 @@
 - [x] Implement backend endpoints/services to:
   - [x] Retrieve and update the WorldModel for a project.
   - [x] Apply WorldModeller suggestions, including provenance entries.
-- [ ] Implement the UI components for the live spec panel (front-end):
-  - [ ] Render Objectives, Constraints, Actors, Assumptions/Simplifications from WorldModel/ProblemSpec.
-  - [ ] Allow user edits and show updates reflected in structured data.
+- [x] Implement the UI components for the live spec panel (front-end):
+  - [x] Render Objectives, Constraints, Actors, Assumptions/Simplifications from WorldModel/ProblemSpec.
+  - [x] Allow user edits and show updates reflected in structured data. (Note: Edits via chat interface; direct edits via flag issue feature)
 - [x] Implement a simple mapping layer between the textual spec and the WorldModel JSON.
 - [x] Add tests or a demo flow showing ProblemSpec → WorldModel refinement loop.
 - [ ] User must sign off on functionality before story can be marked complete.

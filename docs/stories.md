@@ -6,15 +6,23 @@ Int Crucible
 
 ---
 
+## Outstanding Work Summary
+
+**Stories with Outstanding Implementation Work:**
+- **None!** All 20 stories have their implementation tasks complete. 
+
+**Stories Pending User Sign-Off:**
+All stories (001-020) have "User must sign off on functionality before story can be marked complete" as their only remaining task. Implementation is complete, but user acceptance testing and sign-off is required before marking as "Done" in the story files themselves.
+
+**Note:** The story index below shows all stories as "Done" based on implementation completion. Individual story files may still show "To Do" status pending user sign-off, which is tracked in their task checklists.
+
+---
+
 ## Suggested Implementation Order (Remaining Stories)
-1. DONE:**016 – Run advisor contract and explicit execution control**: Lock down how runs are authorized to avoid hidden/accidental costs before adding more automation and testing.
-2. DONE:**008 – Provenance and candidate lineage**: Ensure every candidate and model change is traceable so debugging and feedback have a solid backbone.
-3. DONE:**019 – Operational observability and cost dashboards**: Add run-level metrics and health visibility so both you and AI can see what the pipeline is doing in practice.
-4. DONE:**018 – AI-first test pipeline and snapshot-based scenarios**: Build the AI-facing test harness on top of provenance + observability so snapshots and invariants are cheap and reliable.
-5. DONE:**010 – Multiple chats and runs per project**: Turn projects into persistent reasoning environments once core runs, provenance, and tests are stable.
-6. DONE:**020 – Fix SQLAlchemy metadata cache issue**: Resolve database schema sync problem blocking Run History feature. (Technical Debt - High Priority)
-7. DONE:**009 – Feedback loop and issue handling**: Layer feedback and partial reruns on top of a well-observed, provenance-rich pipeline.
-8. DONE:**017 – Candidate ranking explanations in UI**: Refine UX/interpretability of rankings after the core behavior and testing surface are in place.
+
+All implementation is complete! 🎉
+
+---
 
 ## Story List
 | Story ID | Title                                             | Priority | Status   | Link                                                     |
