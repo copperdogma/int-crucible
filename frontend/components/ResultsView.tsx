@@ -2,14 +2,17 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { runsApi, Candidate, CandidateDetail } from '@/lib/api';
+import { runsApi, Candidate, CandidateDetail, Issue } from '@/lib/api';
+import IssueDialog from './IssueDialog';
 
 interface ResultsViewProps {
   runId: string;
+  onIssueCreated?: (issue: Issue) => void;
 }
 
-export default function ResultsView({ runId }: ResultsViewProps) {
+export default function ResultsView({ runId, onIssueCreated }: ResultsViewProps) {
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
+  const [showIssueDialog, setShowIssueDialog] = useState(false);
 
   const { data: run, isLoading: runLoading } = useQuery({
     queryKey: ['run', runId],
@@ -137,12 +140,21 @@ export default function ResultsView({ runId }: ResultsViewProps) {
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Candidate Details</h3>
-              <button
-                onClick={() => setSelectedCandidateId(null)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowIssueDialog(true)}
+                  className="text-sm px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200"
+                  title="Flag an issue with this candidate"
+                >
+                  ⚠ Flag Issue
+                </button>
+                <button
+                  onClick={() => setSelectedCandidateId(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <div className="space-y-4">
               <div>
@@ -274,6 +286,22 @@ export default function ResultsView({ runId }: ResultsViewProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {showIssueDialog && run && (
+        <IssueDialog
+          projectId={run.project_id}
+          runId={runId}
+          candidateId={selectedCandidateId}
+          onClose={() => setShowIssueDialog(false)}
+          onCreated={(issue: Issue) => {
+            console.log('Issue created:', issue);
+            setShowIssueDialog(false);
+            if (onIssueCreated) {
+              onIssueCreated(issue);
+            }
+          }}
+        />
       )}
     </div>
   );

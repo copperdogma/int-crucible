@@ -31,7 +31,7 @@ NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3001](http://localhost:3001) in your browser.
 
 ### Build
 

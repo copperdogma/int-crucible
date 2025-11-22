@@ -10,7 +10,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from crucible.db.models import Base as CrucibleBase
+from crucible.db.models import Base as CrucibleBase, Issue  # Import Issue to ensure it's in metadata
 
 
 @pytest.fixture

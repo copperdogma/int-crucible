@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from typing import Generator
 
-from crucible.db.models import Base as CrucibleBase
+from crucible.db.models import Base as CrucibleBase, Issue  # Import Issue to ensure it's in metadata
 from crucible.db.session import get_session
 from crucible.agents.problemspec_agent import ProblemSpecAgent
 from crucible.agents.worldmodeller_agent import WorldModellerAgent

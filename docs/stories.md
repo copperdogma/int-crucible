@@ -13,7 +13,7 @@ Int Crucible
 4. DONE:**018 – AI-first test pipeline and snapshot-based scenarios**: Build the AI-facing test harness on top of provenance + observability so snapshots and invariants are cheap and reliable.
 5. DONE:**010 – Multiple chats and runs per project**: Turn projects into persistent reasoning environments once core runs, provenance, and tests are stable.
 6. DONE:**020 – Fix SQLAlchemy metadata cache issue**: Resolve database schema sync problem blocking Run History feature. (Technical Debt - High Priority)
-7. **009 – Feedback loop and issue handling**: Layer feedback and partial reruns on top of a well-observed, provenance-rich pipeline.
+7. DONE:**009 – Feedback loop and issue handling**: Layer feedback and partial reruns on top of a well-observed, provenance-rich pipeline.
 8. **017 – Candidate ranking explanations in UI**: Refine UX/interpretability of rankings after the core behavior and testing surface are in place.
 
 ## Story List
@@ -30,7 +30,7 @@ Int Crucible
 | 007b     | Implement interactive guidance and onboarding agent | High   | Done     | /docs/stories/story-007b-interactive-guidance-agent.md  |
 | 008      | Implement provenance and candidate lineage        | Medium   | Done    | /docs/stories/story-008-provenance-and-lineage.md       |
 | 008b     | Add test tooling and fix run execution issues     | High     | Done     | /docs/stories/story-008b-test-tooling-and-run-fixes.md  |
-| 009      | Implement feedback loop and issue handling        | Medium   | To Do    | /docs/stories/story-009-feedback-and-issues.md          |
+| 009      | Implement feedback loop and issue handling        | Medium   | Done     | /docs/stories/story-009-feedback-and-issues.md          |
 | 010      | Support multiple chats and runs per project       | Medium   | Done     | /docs/stories/story-010-multi-chat-and-run-history.md   |
 | 011      | Native LLM function calling for Architect persona (Guidance) | High | Done | /docs/stories/story-011-native-llm-function-calling-for-guidance.md |
 | 012      | Architect-led conversational loop and full interaction logging | High | Done | /docs/stories/story-012-architect-chat-loop-and-logging.md |

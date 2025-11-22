@@ -177,6 +177,42 @@ export interface WorkflowState {
   project_description?: string;
 }
 
+export interface Issue {
+  id: string;
+  project_id: string;
+  run_id?: string | null;
+  candidate_id?: string | null;
+  type: 'model' | 'constraint' | 'evaluator' | 'scenario';
+  severity: 'minor' | 'important' | 'catastrophic';
+  description: string;
+  resolution_status: 'open' | 'resolved' | 'invalidated';
+  created_at?: string;
+  resolved_at?: string | null;
+}
+
+export interface RemediationProposal {
+  action_type: 'patch_and_rescore' | 'partial_rerun' | 'full_rerun' | 'invalidate_candidates';
+  description: string;
+  estimated_impact: string;
+  rationale: string;
+}
+
+export interface FeedbackResponse {
+  issue_id: string;
+  feedback_message: string;
+  clarifying_questions: string[];
+  remediation_proposal?: RemediationProposal;
+  needs_clarification: boolean;
+  tool_call_audits?: Array<{
+    tool_name: string;
+    arguments: Record<string, any>;
+    result_summary: string;
+    duration_ms: number;
+    success: boolean;
+    error?: string;
+  }>;
+}
+
 /**
  * Generic API fetch wrapper with error handling.
  */
@@ -288,11 +324,12 @@ export const messagesApi = {
   create: async (
     chatSessionId: string,
     content: string,
-    role: 'user' | 'system' | 'agent' = 'user'
+    role: 'user' | 'system' | 'agent' = 'user',
+    messageMetadata?: Record<string, any>
   ): Promise<Message> => {
     return apiFetch<Message>(`/chat-sessions/${chatSessionId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, role }),
+      body: JSON.stringify({ content, role, message_metadata: messageMetadata }),
     });
   },
 };
@@ -524,6 +561,108 @@ export const guidanceApi = {
     } finally {
       reader.releaseLock();
     }
+  },
+};
+
+// Issue endpoints
+export const issuesApi = {
+  create: async (
+    projectId: string,
+    type: 'model' | 'constraint' | 'evaluator' | 'scenario',
+    severity: 'minor' | 'important' | 'catastrophic',
+    description: string,
+    runId?: string | null,
+    candidateId?: string | null
+  ): Promise<Issue> => {
+    return apiFetch<Issue>(`/projects/${projectId}/issues`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type,
+        severity,
+        description,
+        run_id: runId,
+        candidate_id: candidateId,
+      }),
+    });
+  },
+  list: async (
+    projectId: string,
+    filters?: {
+      run_id?: string;
+      candidate_id?: string;
+      type?: 'model' | 'constraint' | 'evaluator' | 'scenario';
+      severity?: 'minor' | 'important' | 'catastrophic';
+      resolution_status?: 'open' | 'resolved' | 'invalidated';
+    }
+  ): Promise<Issue[]> => {
+    const searchParams = new URLSearchParams();
+    if (filters?.run_id) searchParams.set('run_id', filters.run_id);
+    if (filters?.candidate_id) searchParams.set('candidate_id', filters.candidate_id);
+    if (filters?.type) searchParams.set('type', filters.type);
+    if (filters?.severity) searchParams.set('severity', filters.severity);
+    if (filters?.resolution_status) searchParams.set('resolution_status', filters.resolution_status);
+    const query = searchParams.toString();
+    const endpoint = `/projects/${projectId}/issues${query ? `?${query}` : ''}`;
+    return apiFetch<Issue[]>(endpoint);
+  },
+  get: async (issueId: string): Promise<Issue> => {
+    return apiFetch<Issue>(`/issues/${issueId}`);
+  },
+  update: async (
+    issueId: string,
+    description?: string,
+    resolution_status?: 'open' | 'resolved' | 'invalidated'
+  ): Promise<Issue> => {
+    return apiFetch<Issue>(`/issues/${issueId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        description,
+        resolution_status,
+      }),
+    });
+  },
+  resolve: async (
+    issueId: string,
+    remediationAction: 'patch_and_rescore' | 'partial_rerun' | 'full_rerun' | 'invalidate_candidates',
+    remediationMetadata?: {
+      problem_spec?: Record<string, any>;
+      world_model?: Record<string, any>;
+      run_config?: Record<string, any>;
+      candidate_ids?: string[];
+      reason?: string;
+    }
+  ): Promise<{
+    status: string;
+    message: string;
+    issue_id: string;
+    remediation_action: string;
+    result: Record<string, any>;
+  }> => {
+    return apiFetch(`/issues/${issueId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({
+        remediation_action: remediationAction,
+        remediation_metadata: remediationMetadata,
+      }),
+    });
+  },
+};
+
+// Feedback endpoints
+export const feedbackApi = {
+  proposeRemediation: async (
+    issueId: string,
+    userClarification?: string
+  ): Promise<FeedbackResponse> => {
+    const searchParams = new URLSearchParams();
+    if (userClarification) {
+      searchParams.set('user_clarification', userClarification);
+    }
+    const query = searchParams.toString();
+    const endpoint = `/issues/${issueId}/feedback${query ? `?${query}` : ''}`;
+    return apiFetch<FeedbackResponse>(endpoint, {
+      method: 'POST',
+    });
   },
 };
 

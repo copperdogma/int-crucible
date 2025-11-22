@@ -48,6 +48,18 @@ button[title*="Next.js"] {
   pointer-events: none !important;
 }
 
+/* Toast notification animations */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* Ensure chat input area has proper padding to avoid overlap */
 .chat-input-area {
   padding-bottom: 2rem;

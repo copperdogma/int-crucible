@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { messagesApi, chatSessionsApi, problemSpecApi, guidanceApi, projectsApi } from '@/lib/api';
-import type { Message, GuidanceResponse } from '@/lib/api';
+import { messagesApi, chatSessionsApi, problemSpecApi, guidanceApi, projectsApi, feedbackApi, issuesApi } from '@/lib/api';
+import type { Message, GuidanceResponse, FeedbackResponse } from '@/lib/api';
 import MessageContent from './MessageContent';
 import RunRecommendationCard from './RunRecommendationCard';
 import RunSummaryCard from './RunSummaryCard';
+import RemediationProposalCard from './RemediationProposalCard';
 
 interface DeltaSummaryProps {
   metadata: Record<string, any>;
@@ -162,16 +163,22 @@ interface ChatInterfaceProps {
   onProjectCreated?: (projectId: string) => void;
   onRecommendation?: (config: any) => void;
   onRunSummary?: (summary: any) => void;
+  onIssueCreated?: (issueId: string) => void;
 }
 
-export default function ChatInterface({
+export interface ChatInterfaceRef {
+  triggerIssueFeedback: (issueId: string) => Promise<void>;
+}
+
+const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(function ChatInterface({
   projectId,
   chatSessionId,
   onChatSessionChange,
   onProjectCreated,
   onRecommendation,
   onRunSummary,
-}: ChatInterfaceProps) {
+  onIssueCreated,
+}, ref) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isGeneratingReply, setIsGeneratingReply] = useState(false);
@@ -477,6 +484,44 @@ export default function ChatInterface({
     },
   });
 
+  // Expose method to trigger feedback for an issue
+  useImperativeHandle(ref, () => ({
+    triggerIssueFeedback: async (issueId: string) => {
+      if (!chatSessionId || !projectId) {
+        console.warn('Cannot trigger feedback: no chat session or project');
+        return;
+      }
+
+      try {
+        // Get feedback from API
+        const feedback = await feedbackApi.proposeRemediation(issueId);
+        
+        // Create a user message about the issue
+        const issueMessage = `I've flagged an issue. Can you help me understand and resolve it?`;
+        await messagesApi.create(chatSessionId, issueMessage, 'user');
+        
+        // Create assistant message with feedback
+        const feedbackMessage = feedback.feedback_message;
+        // Store remediation proposal in message metadata for rendering
+        const messageMetadata = feedback.remediation_proposal ? {
+          remediation_proposal: feedback.remediation_proposal,
+          issue_id: issueId,
+        } : undefined;
+        await messagesApi.create(chatSessionId, feedbackMessage, 'assistant', messageMetadata);
+        
+        // Refresh messages
+        await queryClient.invalidateQueries({ queryKey: ['messages', chatSessionId] });
+        
+        // Notify parent
+        if (onIssueCreated) {
+          onIssueCreated(issueId);
+        }
+      } catch (error) {
+        console.error('Failed to trigger issue feedback:', error);
+      }
+    },
+  }));
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     // Prevent sending if already sending or no message
@@ -620,6 +665,14 @@ What are you trying to solve or make? Describe your problem, and I'll create a p
                         onViewResults={() => onRunSummary?.(msg.message_metadata.run_summary)}
                       />
                     )}
+                    {msg.message_metadata.remediation_proposal && (
+                      <RemediationProposalCard
+                        proposal={msg.message_metadata.remediation_proposal}
+                        issueId={msg.message_metadata.issue_id}
+                        projectId={projectId!}
+                        chatSessionId={chatSessionId!}
+                      />
+                    )}
                   </>
                 )}
                 {msg.created_at && (
@@ -720,5 +773,7 @@ What are you trying to solve or make? Describe your problem, and I'll create a p
       </div>
     </div>
   );
-}
+});
+
+export default ChatInterface;
 

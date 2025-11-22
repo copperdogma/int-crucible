@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { problemSpecApi, worldModelApi, messagesApi } from '@/lib/api';
+import { problemSpecApi, worldModelApi, messagesApi, Issue } from '@/lib/api';
+import IssueDialog from './IssueDialog';
 
 interface SpecPanelProps {
   projectId: string;
@@ -14,11 +15,12 @@ interface SectionHighlight {
   timestamp: number;
 }
 
-export default function SpecPanel({ projectId, chatSessionId }: SpecPanelProps) {
+export default function SpecPanel({ projectId, chatSessionId, onIssueCreated }: SpecPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   // Track individual item highlights with delta-based ordering (newest = highest index)
   // Key format: "constraints:Budget", "goals:0", "resolution", etc.
   const [highlightedItems, setHighlightedItems] = useState<Map<string, number>>(new Map());
+  const [showIssueDialog, setShowIssueDialog] = useState(false);
   
   // Fetch messages to get delta information
   const { data: messages = [] } = useQuery({
@@ -236,9 +238,26 @@ export default function SpecPanel({ projectId, chatSessionId }: SpecPanelProps) 
     );
   }
 
+  const handleIssueCreated = (issue: Issue) => {
+    // Issue created - notify parent to trigger feedback agent
+    console.log('Issue created:', issue);
+    if (onIssueCreated) {
+      onIssueCreated(issue);
+    }
+  };
+
   return (
     <div ref={panelRef} className="p-4 space-y-6" style={{ minHeight: 'min-content' }}>
-      <h3 className="text-lg font-semibold text-gray-900">Problem Specification</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">Problem Specification</h3>
+        <button
+          onClick={() => setShowIssueDialog(true)}
+          className="text-sm px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200"
+          title="Flag an issue with this spec"
+        >
+          ⚠ Flag Issue
+        </button>
+      </div>
 
       {/* Goals */}
       {problemSpec && problemSpec.goals.length > 0 && (
@@ -339,6 +358,14 @@ export default function SpecPanel({ projectId, chatSessionId }: SpecPanelProps) 
             </div>
           )}
         </div>
+      )}
+
+      {showIssueDialog && (
+        <IssueDialog
+          projectId={projectId}
+          onClose={() => setShowIssueDialog(false)}
+          onCreated={handleIssueCreated}
+        />
       )}
     </div>
   );

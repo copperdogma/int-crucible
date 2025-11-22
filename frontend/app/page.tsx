@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { projectsApi, Project, chatSessionsApi, messagesApi } from '@/lib/api';
-import ChatInterface from '@/components/ChatInterface';
+import ChatInterface, { ChatInterfaceRef } from '@/components/ChatInterface';
 import ChatSessionSwitcher from '@/components/ChatSessionSwitcher';
 import SpecPanel from '@/components/SpecPanel';
 import RunConfigPanel from '@/components/RunConfigPanel';
@@ -11,6 +11,9 @@ import ResultsView from '@/components/ResultsView';
 import WorkflowProgress from '@/components/WorkflowProgress';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import RunHistoryPanel from '@/components/RunHistoryPanel';
+import IssuesPanel from '@/components/IssuesPanel';
+import { ToastContainer } from '@/components/Toast';
+import { useToast } from '@/hooks/useToast';
 
 export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -22,9 +25,11 @@ export default function Home() {
   const [showResults, setShowResults] = useState(false);
   const [showRunHistory, setShowRunHistory] = useState(false);
   const [showProjectEdit, setShowProjectEdit] = useState(false);
+  const [showIssues, setShowIssues] = useState(false);
   const queryClient = useQueryClient();
   const specPanelScrollRef = useRef<HTMLDivElement>(null);
   const hasScrolledToTopRef = useRef(false);
+  const chatInterfaceRef = useRef<ChatInterfaceRef>(null);
 
   // Handler to create analysis chat for a run
   const createAnalysisChatMutation = useMutation({
@@ -117,6 +122,7 @@ export default function Home() {
             {/* Chat interface for project creation */}
             <div className="flex-1 flex flex-col min-h-0">
               <ChatInterface
+                ref={chatInterfaceRef}
                 projectId={null}
                 chatSessionId={null}
                 onChatSessionChange={(chatSessionId) => {
@@ -221,6 +227,16 @@ export default function Home() {
             >
               Run History
             </button>
+            <button
+              onClick={() => setShowIssues(!showIssues)}
+              className={`px-3 py-1 text-sm rounded ${
+                showIssues
+                  ? 'bg-yellow-100 text-yellow-700'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Issues
+            </button>
             {activeRunId && (
               <button
                 onClick={() => setShowResults(!showResults)}
@@ -255,6 +271,7 @@ export default function Home() {
             </div>
             <div className="flex-1 min-h-0 overflow-hidden">
               <ChatInterface
+                ref={chatInterfaceRef}
                 projectId={selectedProjectId}
                 chatSessionId={selectedChatSessionId}
                 onChatSessionChange={setSelectedChatSessionId}
@@ -276,7 +293,16 @@ export default function Home() {
               className="w-96 border-l bg-white flex-shrink-0 flex flex-col overflow-hidden" 
             >
               <div className="flex-1 overflow-y-auto overflow-x-hidden">
-                <SpecPanel projectId={selectedProjectId} chatSessionId={selectedChatSessionId} />
+                <SpecPanel 
+                  projectId={selectedProjectId} 
+                  chatSessionId={selectedChatSessionId}
+                  onIssueCreated={(issue) => {
+                    // Trigger feedback in chat
+                    if (chatInterfaceRef.current) {
+                      chatInterfaceRef.current.triggerIssueFeedback(issue.id);
+                    }
+                  }}
+                />
               </div>
             </div>
           )}
@@ -328,6 +354,25 @@ export default function Home() {
         </div>
       )}
 
+      {showIssues && selectedProjectId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-5xl w-full mx-4 max-h-[85vh] overflow-y-auto flex flex-col">
+            <IssuesPanel
+              projectId={selectedProjectId}
+              runId={activeRunId}
+              onClose={() => setShowIssues(false)}
+              onIssueSelected={(issueId) => {
+                // Trigger feedback in chat for selected issue
+                if (chatInterfaceRef.current) {
+                  chatInterfaceRef.current.triggerIssueFeedback(issueId);
+                  setShowIssues(false);
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Results view (modal/overlay) */}
       {showResults && activeRunId && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -341,7 +386,15 @@ export default function Home() {
                 ×
               </button>
             </div>
-            <ResultsView runId={activeRunId} />
+            <ResultsView 
+              runId={activeRunId}
+              onIssueCreated={(issue) => {
+                // Trigger feedback in chat
+                if (chatInterfaceRef.current) {
+                  chatInterfaceRef.current.triggerIssueFeedback(issue.id);
+                }
+              }}
+            />
           </div>
         </div>
       )}
@@ -357,6 +410,9 @@ export default function Home() {
           }}
         />
       )}
+
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

@@ -3861,6 +3861,519 @@ async def get_project_provenance(
         )
 
 
+# Pydantic models for Issue API
+class IssueCreateRequest(BaseModel):
+    """Request model for issue creation."""
+    type: str  # IssueType enum value
+    severity: str  # IssueSeverity enum value
+    description: str
+    run_id: Optional[str] = None
+    candidate_id: Optional[str] = None
+
+
+class IssueUpdateRequest(BaseModel):
+    """Request model for issue update."""
+    description: Optional[str] = None
+    resolution_status: Optional[str] = None  # IssueResolutionStatus enum value
+
+
+class IssueResolveRequest(BaseModel):
+    """Request model for resolving an issue with remediation action."""
+    remediation_action: str  # "patch_and_rescore", "partial_rerun", "full_rerun", "invalidate_candidates"
+    remediation_metadata: Optional[Dict[str, Any]] = None  # Additional action-specific parameters
+
+
+class IssueResponse(BaseModel):
+    """Response model for Issue."""
+    id: str
+    project_id: str
+    run_id: Optional[str] = None
+    candidate_id: Optional[str] = None
+    type: str
+    severity: str
+    description: str
+    resolution_status: str
+    created_at: Optional[str] = None
+    resolved_at: Optional[str] = None
+
+
+# Issue API endpoints
+@app.post("/projects/{project_id}/issues", response_model=IssueResponse)
+async def create_issue(
+    project_id: str,
+    request: IssueCreateRequest,
+    db: Session = Depends(get_db)
+) -> IssueResponse:
+    """
+    Create a new issue for a project.
+    
+    Args:
+        project_id: Project ID
+        request: Issue creation request
+        db: Database session
+        
+    Returns:
+        Created issue
+    """
+    try:
+        from crucible.db.repositories import (
+            get_project as repo_get_project,
+            create_issue as repo_create_issue,
+        )
+        from crucible.db.models import IssueType, IssueSeverity
+        
+        # Verify project exists
+        project = repo_get_project(db, project_id)
+        if project is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project not found: {project_id}"
+            )
+        
+        # Validate enum values
+        try:
+            issue_type = IssueType(request.type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid issue type: {request.type}. Must be one of: {[e.value for e in IssueType]}"
+            )
+        
+        try:
+            severity = IssueSeverity(request.severity)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid severity: {request.severity}. Must be one of: {[e.value for e in IssueSeverity]}"
+            )
+        
+        # Create issue
+        issue = repo_create_issue(
+            session=db,
+            project_id=project_id,
+            type=issue_type.value,
+            severity=severity.value,
+            description=request.description,
+            run_id=request.run_id,
+            candidate_id=request.candidate_id
+        )
+        
+        # Record provenance entry on project
+        from crucible.core.provenance import build_provenance_entry
+        from crucible.db.repositories import get_problem_spec as repo_get_problem_spec
+        
+        problem_spec = repo_get_problem_spec(db, project_id)
+        if problem_spec:
+            provenance_entry = build_provenance_entry(
+                event_type="issue_created",
+                actor="user",
+                source=f"api:/projects/{project_id}/issues",
+                description=f"Issue created: {issue_type.value} - {severity.value}",
+                reference_ids=[issue.id, project_id],
+                metadata={
+                    "issue_type": issue_type.value,
+                    "issue_severity": severity.value,
+                    "run_id": request.run_id,
+                    "candidate_id": request.candidate_id
+                }
+            )
+            if problem_spec.provenance_log is None:
+                problem_spec.provenance_log = []
+            problem_spec.provenance_log.append(provenance_entry)
+            db.commit()
+        
+        return IssueResponse(
+            id=issue.id,
+            project_id=issue.project_id,
+            run_id=issue.run_id,
+            candidate_id=issue.candidate_id,
+            type=issue.type.value,
+            severity=issue.severity.value,
+            description=issue.description,
+            resolution_status=issue.resolution_status.value,
+            created_at=issue.created_at.isoformat() if issue.created_at else None,
+            resolved_at=issue.resolved_at.isoformat() if issue.resolved_at else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating issue: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating issue: {str(e)}"
+        )
+
+
+@app.get("/projects/{project_id}/issues", response_model=List[IssueResponse])
+async def list_issues(
+    project_id: str,
+    run_id: Optional[str] = Query(None),
+    candidate_id: Optional[str] = Query(None),
+    type: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    resolution_status: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+) -> List[IssueResponse]:
+    """
+    List issues for a project with optional filters.
+    
+    Args:
+        project_id: Project ID
+        run_id: Optional filter by run ID
+        candidate_id: Optional filter by candidate ID
+        type: Optional filter by issue type
+        severity: Optional filter by severity
+        resolution_status: Optional filter by resolution status
+        db: Database session
+        
+    Returns:
+        List of issues
+    """
+    try:
+        from crucible.db.repositories import (
+            get_project as repo_get_project,
+            list_issues as repo_list_issues,
+        )
+        from crucible.db.models import Issue
+        
+        # Verify project exists
+        project = repo_get_project(db, project_id)
+        if project is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Project not found: {project_id}"
+            )
+        
+        # Get all issues for project
+        issues = repo_list_issues(db, project_id=project_id, resolution_status=resolution_status)
+        
+        # Apply additional filters
+        filtered_issues = []
+        for issue in issues:
+            if run_id is not None and issue.run_id != run_id:
+                continue
+            if candidate_id is not None and issue.candidate_id != candidate_id:
+                continue
+            if type is not None and issue.type.value != type:
+                continue
+            if severity is not None and issue.severity.value != severity:
+                continue
+            filtered_issues.append(issue)
+        
+        return [
+            IssueResponse(
+                id=issue.id,
+                project_id=issue.project_id,
+                run_id=issue.run_id,
+                candidate_id=issue.candidate_id,
+                type=issue.type.value,
+                severity=issue.severity.value,
+                description=issue.description,
+                resolution_status=issue.resolution_status.value,
+                created_at=issue.created_at.isoformat() if issue.created_at else None,
+                resolved_at=issue.resolved_at.isoformat() if issue.resolved_at else None,
+            )
+            for issue in filtered_issues
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing issues: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing issues: {str(e)}"
+        )
+
+
+@app.get("/issues/{issue_id}", response_model=IssueResponse)
+async def get_issue(
+    issue_id: str,
+    db: Session = Depends(get_db)
+) -> IssueResponse:
+    """
+    Get an issue by ID.
+    
+    Args:
+        issue_id: Issue ID
+        db: Database session
+        
+    Returns:
+        Issue data
+    """
+    try:
+        from crucible.db.repositories import get_issue as repo_get_issue
+        
+        issue = repo_get_issue(db, issue_id)
+        if issue is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Issue not found: {issue_id}"
+            )
+        
+        return IssueResponse(
+            id=issue.id,
+            project_id=issue.project_id,
+            run_id=issue.run_id,
+            candidate_id=issue.candidate_id,
+            type=issue.type.value,
+            severity=issue.severity.value,
+            description=issue.description,
+            resolution_status=issue.resolution_status.value,
+            created_at=issue.created_at.isoformat() if issue.created_at else None,
+            resolved_at=issue.resolved_at.isoformat() if issue.resolved_at else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting issue: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting issue: {str(e)}"
+        )
+
+
+@app.patch("/issues/{issue_id}", response_model=IssueResponse)
+async def update_issue(
+    issue_id: str,
+    request: IssueUpdateRequest,
+    db: Session = Depends(get_db)
+) -> IssueResponse:
+    """
+    Update an issue.
+    
+    Args:
+        issue_id: Issue ID
+        request: Issue update request
+        db: Database session
+        
+    Returns:
+        Updated issue
+    """
+    try:
+        from crucible.db.repositories import (
+            get_issue as repo_get_issue,
+            update_issue as repo_update_issue,
+        )
+        from crucible.db.models import IssueResolutionStatus
+        from datetime import datetime
+        
+        issue = repo_get_issue(db, issue_id)
+        if issue is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Issue not found: {issue_id}"
+            )
+        
+        # Update fields
+        if request.description is not None:
+            issue.description = request.description
+        
+        resolved_at = None
+        if request.resolution_status is not None:
+            try:
+                resolution_status = IssueResolutionStatus(request.resolution_status)
+                issue.resolution_status = resolution_status
+                if resolution_status != IssueResolutionStatus.OPEN and issue.resolved_at is None:
+                    resolved_at = datetime.utcnow()
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid resolution status: {request.resolution_status}. Must be one of: {[e.value for e in IssueResolutionStatus]}"
+                )
+        
+        # Update via repository
+        updated_issue = repo_update_issue(
+            session=db,
+            issue_id=issue_id,
+            resolution_status=request.resolution_status,
+            resolved_at=resolved_at
+        )
+        
+        if updated_issue is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Issue not found: {issue_id}"
+            )
+        
+        return IssueResponse(
+            id=updated_issue.id,
+            project_id=updated_issue.project_id,
+            run_id=updated_issue.run_id,
+            candidate_id=updated_issue.candidate_id,
+            type=updated_issue.type.value,
+            severity=updated_issue.severity.value,
+            description=updated_issue.description,
+            resolution_status=updated_issue.resolution_status.value,
+            created_at=updated_issue.created_at.isoformat() if updated_issue.created_at else None,
+            resolved_at=updated_issue.resolved_at.isoformat() if updated_issue.resolved_at else None,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating issue: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating issue: {str(e)}"
+        )
+
+
+@app.post("/issues/{issue_id}/feedback")
+async def get_issue_feedback(
+    issue_id: str,
+    user_clarification: Optional[str] = None,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Get feedback and remediation proposal for an issue.
+    
+    Args:
+        issue_id: Issue ID
+        user_clarification: Optional user response to clarifying questions
+        db: Database session
+        
+    Returns:
+        Feedback response with questions and/or remediation proposal
+    """
+    try:
+        from crucible.db.repositories import get_issue as repo_get_issue
+        from crucible.services.feedback_service import FeedbackService
+        
+        issue = repo_get_issue(db, issue_id)
+        if issue is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Issue not found: {issue_id}"
+            )
+        
+        feedback_service = FeedbackService(db)
+        result = feedback_service.propose_remediation(
+            issue_id=issue_id,
+            user_clarification=user_clarification,
+        )
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting feedback for issue {issue_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting feedback: {str(e)}"
+        )
+
+
+@app.post("/issues/{issue_id}/resolve")
+async def resolve_issue(
+    issue_id: str,
+    request: IssueResolveRequest,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Resolve an issue with a remediation action.
+    
+    This endpoint triggers the appropriate remediation based on the action type.
+    The actual remediation logic will be implemented in IssueService.
+    
+    Args:
+        issue_id: Issue ID
+        request: Remediation action request
+        db: Database session
+        
+    Returns:
+        Remediation result
+    """
+    try:
+        from crucible.db.repositories import get_issue as repo_get_issue
+        from crucible.db.models import IssueResolutionStatus
+        from datetime import datetime
+        
+        issue = repo_get_issue(db, issue_id)
+        if issue is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Issue not found: {issue_id}"
+            )
+        
+        if issue.resolution_status != IssueResolutionStatus.OPEN:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Issue {issue_id} is already {issue.resolution_status.value}"
+            )
+        
+        # Call IssueService to apply remediation
+        from crucible.services.issue_service import IssueService
+        
+        issue_service = IssueService(db)
+        
+        # Get issue to determine context
+        issue = repo_get_issue(db, issue_id)
+        if issue is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Issue not found: {issue_id}"
+            )
+        
+        # Apply remediation based on action type
+        patch_data = request.remediation_metadata or {}
+        run_config = patch_data.pop("run_config", None)
+        
+        try:
+            if request.remediation_action == "patch_and_rescore":
+                result = issue_service.apply_patch_and_rescore(
+                    issue_id=issue_id,
+                    patch_data=patch_data,
+                )
+            elif request.remediation_action == "partial_rerun":
+                result = issue_service.apply_partial_rerun(
+                    issue_id=issue_id,
+                    patch_data=patch_data,
+                )
+            elif request.remediation_action == "full_rerun":
+                result = issue_service.apply_full_rerun(
+                    issue_id=issue_id,
+                    patch_data=patch_data,
+                    run_config=run_config,
+                )
+            elif request.remediation_action == "invalidate_candidates":
+                candidate_ids = patch_data.get("candidate_ids", [])
+                if not candidate_ids:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="candidate_ids required for invalidate_candidates action"
+                    )
+                result = issue_service.invalidate_candidates(
+                    issue_id=issue_id,
+                    candidate_ids=candidate_ids,
+                    reason=patch_data.get("reason"),
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown remediation action: {request.remediation_action}. Must be one of: patch_and_rescore, partial_rerun, full_rerun, invalidate_candidates"
+                )
+            
+            return {
+                "status": "success",
+                "message": f"Issue {issue_id} resolved with action '{request.remediation_action}'",
+                "issue_id": issue_id,
+                "remediation_action": request.remediation_action,
+                "result": result,
+            }
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=str(e)
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resolving issue: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error resolving issue: {str(e)}"
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
     config = get_config()

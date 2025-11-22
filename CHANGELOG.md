@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2025-01-21] - Story 009: Feedback loop and issue handling
+
+### Added
+- **Story 009: Feedback loop and issue handling** (Complete)
+  - Issue management system with full CRUD API endpoints
+  - `FeedbackAgent` for analyzing issues and proposing remediation actions
+  - `IssueService` with complete remediation action implementations:
+    - `apply_patch_and_rescore()` - Minor fixes with actual patch application
+    - `apply_partial_rerun()` - Important fixes with partial pipeline reruns
+    - `apply_full_rerun()` - Catastrophic fixes with full pipeline reruns
+    - `invalidate_candidates()` - Candidate rejection with provenance tracking
+  - Frontend issue flagging UI:
+    - `IssueDialog` component for creating issues from SpecPanel and ResultsView
+    - `IssuesPanel` component for viewing and filtering issues
+    - `RemediationProposalCard` component for displaying remediation proposals in chat
+  - Toast notification system for user feedback (`Toast.tsx`, `useToast` hook)
+  - Comprehensive test coverage:
+    - 6 unit tests for IssueService
+    - 9 integration tests for issue API endpoints
+    - 7 edge case tests for remediation actions
+
+### Changed
+- **Backend**: Implemented actual patch application logic in remediation actions
+  - Uses `update_problem_spec()` and `update_world_model()` repository functions
+  - Proper deep merging for nested structures (WorldModel model_data)
+  - All remediation actions now fully functional (no stubs)
+- **Frontend**: Enhanced chat integration for feedback workflow
+  - `ChatInterface` automatically triggers feedback agent when issues are created
+  - Remediation proposals stored in message metadata and displayed as structured cards
+  - Approve/reject buttons wired to API endpoints with success/error notifications
+- **Frontend**: Updated port to 3001 to avoid conflicts with other dev projects
+- **Documentation**: Updated `AGENTS.md` with Feedback Agent documentation
+
+### Fixed
+- **Code Quality**: Fixed all linting warnings in `issue_service.py`
+  - Exception handling now uses `raise ... from err` pattern
+  - Removed unused imports
+  - Fixed import sorting and type annotations
+- **UX**: Replaced alert() calls with toast notifications for better user experience
+  - Success notifications when remediation actions complete
+  - Error notifications on failures
+  - Auto-dismiss with manual close option
+
+### Documentation
+- Updated `docs/stories/story-009-feedback-and-issues.md` with completion status
+- Updated `docs/stories.md` to mark Story 009 as Done
+- Added comprehensive work log entries documenting all implementation phases
+
 ## [2025-11-21] - Stories 010 & 020: Multi-chat support and SQLAlchemy metadata cache fix
 
 ### Added

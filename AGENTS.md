@@ -176,6 +176,12 @@ FastAPI application providing HTTP endpoints:
 - `GET /health` - Health check
 - `GET /kosmos/agents` - List available Kosmos agents
 - `POST /kosmos/test` - Test Kosmos integration
+- `POST /projects/{project_id}/issues` - Create issue
+- `GET /projects/{project_id}/issues` - List issues (with filters)
+- `GET /issues/{issue_id}` - Get issue details
+- `PATCH /issues/{issue_id}` - Update issue
+- `POST /issues/{issue_id}/resolve` - Resolve issue with remediation action
+- `POST /issues/{issue_id}/feedback` - Get feedback/remediation proposal
 
 **Usage:**
 ```bash
@@ -363,6 +369,45 @@ Agents communicate through:
 - Message passing (Kosmos framework)
 - Shared database state
 - Structured data exchange
+
+### Feedback Agent (`crucible/agents/feedback_agent.py`)
+
+The Feedback Agent helps users understand and resolve issues they've flagged in the system.
+
+**Purpose:**
+- Analyzes user-flagged issues (problems with ProblemSpec, WorldModel, constraints, evaluators, scenarios)
+- Asks clarifying questions to better understand the issue
+- Proposes appropriate remediation actions based on issue severity
+
+**Remediation Actions:**
+- **Patch-and-rescore** (minor issues): Updates ProblemSpec/WorldModel, re-runs only evaluation and ranking phases
+- **Partial rerun** (important issues): Updates ProblemSpec/WorldModel, re-runs evaluation and ranking phases, potentially creating a new `EVAL_ONLY` run
+- **Full rerun** (catastrophic issues): Updates ProblemSpec/WorldModel, creates a new `FULL_SEARCH` or `SEEDED` run
+- **Invalidate candidates**: Marks specific candidates as `REJECTED` due to catastrophic issues
+
+**Usage:**
+```python
+from crucible.services.feedback_service import FeedbackService
+from crucible.db.session import get_session
+
+session = next(get_session())
+feedback_service = FeedbackService(session)
+result = feedback_service.propose_remediation(issue_id)
+# Returns: {
+#   "feedback_message": "...",
+#   "clarifying_questions": [...],
+#   "remediation_proposal": {...},
+#   "needs_clarification": bool
+# }
+```
+
+**API Endpoint:**
+- `POST /issues/{issue_id}/feedback` - Get feedback and remediation proposal for an issue
+
+**Integration:**
+- Automatically triggered when an issue is created via the frontend
+- Feedback is displayed in the chat interface
+- Users can approve/reject remediation proposals
 
 ## Configuration Management
 
@@ -563,6 +608,21 @@ crucible snapshot test --all
   - Invariant validation
   - Test harness for automated regression testing
 
+**Completed (Story 009):**
+- ✅ Feedback Agent (`crucible/agents/feedback_agent.py`)
+  - Issue clarification and remediation proposal
+  - Tool-based system state querying
+  - Integration with chat interface
+- ✅ Issue Management System
+  - Issue creation, listing, and resolution
+  - API endpoints for issue operations
+  - Frontend UI for flagging and viewing issues
+- ✅ Remediation Actions
+  - Patch-and-rescore for minor issues
+  - Partial rerun for important issues
+  - Full rerun for catastrophic issues
+  - Candidate invalidation
+
 **To Be Built (Future Stories):**
 - ProblemSpec Agent
 - WorldModeller
@@ -571,7 +631,7 @@ crucible snapshot test --all
 - Evaluators
 - I-Ranker
 - Provenance Tracker
-- Frontend UI
+- Frontend UI (partial - core features implemented)
 
 ## Quick Reference
 
