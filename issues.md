@@ -34,6 +34,11 @@ Int Crucible
 | 005 | Chat history not loading when opening existing project | Resolved | Critical | Bug | 2025-01-22 | |
 | 006 | Remediation "Approve & Apply" fails when issue has no run_id | Resolved | High | Bug | 2025-01-22 | ✅ Validated 2025-01-22 |
 | 007 | Remediation "Approve & Apply" button unclear about what it will do | Resolved | High | UX | 2025-01-22 | ✅ Validated 2025-01-22 |
+| 008 | Sequential evaluation causes 60-80% slower run times | Open | Critical | Performance | 2025-11-24 | |
+| 009 | No LLM retry logic for transient failures | Open | Critical | Reliability | 2025-11-24 | |
+| 010 | Missing JSON schema validation for world models and constraints | Open | High | Data Integrity | 2025-11-24 | |
+| 011 | Code duplication in IssueService remediation methods (80%+ duplicate) | Open | High | Tech Debt | 2025-11-24 | |
+| 012 | Tool calling executor has leaky provider abstraction | Open | Medium | Architecture | 2025-11-24 | |
 
 ---
 
